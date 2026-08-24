@@ -21,7 +21,7 @@ from anthropic import Anthropic
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 
-ADMIN_ID = int(os.environ["ADMIN_ID"])
+ADMIN_ID = 6078096693
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
