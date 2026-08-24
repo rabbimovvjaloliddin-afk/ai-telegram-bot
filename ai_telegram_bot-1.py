@@ -48,11 +48,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         response = client.messages.create(
-            model="claude-sonnet-5" ,
-            max_tokens=500,
-            system=SYSTEM_PROMPT,
-            messages=user_histories[user_id],
+            model="claude-3-5-haiku-latest" ,
+            max_tokens=1000,
+            messages=[
+                { "role" : "user" , "content" :
+                 user_text}
+            ]
         )
+        answer = response.content[0].text 
         reply_text = response.content[0].text
         user_histories[user_id].append({"role": "assistant", "content": reply_text})
         await update.message.reply_text(reply_text)
