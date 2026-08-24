@@ -11,7 +11,7 @@ from anthropic import Anthropic
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 
-ADMIN_ID = int(os.environ[" 6078096693 "])  # sizning Telegram ID'ingiz (raqam)
+ADMIN_ID = int(os.environ["ADMIN_ID"])  # sizning Telegram ID'ingiz (raqam)
 CARD_NUMBER = os.environ.get("CARD_NUMBER", "5614 6818 1198 0360")  # to'lov uchun karta
 WEEKLY_PRICE = os.environ.get("WEEKLY_PRICE", "10 000 so'm")
 
