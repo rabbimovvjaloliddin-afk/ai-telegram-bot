@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import logging
 from datetime import datetime, timedelta
@@ -42,9 +43,19 @@ WEEKLY_PRICE = os.environ.get(
 FREE_MESSAGES = 3
 SUBSCRIPTION_DAYS = 7
 
+# Claude'ga markdown belgilaridan foydalanmaslikni aytamiz,
+# chunki Telegram'ga parse_mode'siz yuborilganda ** va # kabi
+# belgilar formatlanmasdan, xom holida ko'rinib qoladi.
 SYSTEM_PROMPT = """
 Siz do'stona va foydali AI yordamchisiz.
 Foydalanuvchilarga o'zbek tilida qisqa, aniq va foydali javob bering.
+
+MUHIM QOIDA: Javobingizda hech qanday Markdown belgisi ishlatmang.
+Ya'ni **qalin matn**, *kursiv*, # sarlavha, ``` kod bloki kabi
+belgilardan umuman foydalanmang. Faqat oddiy matn, emoji va
+yangi qatorlardan (enter) foydalaning. Agar biror narsani
+ta'kidlashingiz kerak bo'lsa, emoji yoki katta harflar bilan
+ajrating, yulduzcha (*) bilan emas.
 """
 
 
@@ -57,6 +68,40 @@ logging.basicConfig(level=logging.INFO)
 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 DATA_FILE = "users.json"
+
+
+# ============================================
+# YORDAMCHI: MARKDOWN TOZALASH
+# ============================================
+
+def clean_markdown(text: str) -> str:
+    """
+    Claude javobida tasodifan Markdown belgilari qolib
+    ketgan bo'lsa ham (**, *, #, ```), ularni olib tashlaydi.
+    Bu qo'shimcha xavfsizlik qatlami — SYSTEM_PROMPT asosiy
+    himoya, bu esa uning "orqa fon"i.
+    """
+    if not text:
+        return text
+
+    # ```kod bloklari``` -> ichidagi matnni qoldirib, belgini olib tashlaymiz
+    text = re.sub(r"```(?:\w+\n)?(.*?)```", r"\1", text, flags=re.DOTALL)
+
+    # **qalin** yoki __qalin__ -> qalin
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+
+    # *kursiv* yoki _kursiv_ -> kursiv
+    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
+    text = re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"\1", text)
+
+    # # Sarlavha -> Sarlavha
+    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+
+    # `inline code` -> inline code
+    text = re.sub(r"`(.+?)`", r"\1", text)
+
+    return text.strip()
 
 
 # ============================================
@@ -633,6 +678,10 @@ async def handle_message(
         )
 
         answer = response.content[0].text
+
+        # Qo'shimcha xavfsizlik: Claude tasodifan Markdown
+        # belgisi qoldirib yuborsa ham, tozalab yuboramiz.
+        answer = clean_markdown(answer)
 
         if not subscription_active:
             user["free_used"] += 1
