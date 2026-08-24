@@ -33,7 +33,7 @@ WEEKLY_PRICE = os.environ.get(
     "10 000 so'm"
 )
 
-FREE_MESSAGES = 1
+FREE_MESSAGES = 2
 SUBSCRIPTION_DAYS = 7
 
 SYSTEM_PROMPT = """
