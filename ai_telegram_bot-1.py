@@ -22,6 +22,7 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 
 ADMIN_ID = 6078096693
+ADMIN_USERNAME = "@jaloliddino7"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
@@ -92,7 +93,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Salom!\n\n"
         "🤖 Men Aqilliyordam AI botiman.\n\n"
-        "🆓 Sizga 1 ta bepul savol beriladi.\n"
+        "🆓 Sizga 2 ta bepul savol beriladi.\n"
         "💳 Keyingi savollar uchun 7 kunlik obuna kerak.\n\n"
         "📌 Obuna olish: /buy"
     )
@@ -112,7 +113,7 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{CARD_NUMBER}\n\n"
         "To'lovni amalga oshirgach, "
         "chekni adminga yuboring.\n\n"
-        "👨‍💻 Admin: @username"
+        f"👨‍💻 Admin: {ADMIN_USERNAME}"
     )
 
 
@@ -166,7 +167,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user_text = update.message.text
 
-    # Yangi foydalanuvchi
     if user_id not in users:
         users[user_id] = {
             "free_used": 0,
@@ -236,7 +236,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         answer = response.content[0].text
 
-        # Faqat bepul foydalanuvchida limitni kamaytirish
         if not subscription_active:
             user["free_used"] += 1
 
