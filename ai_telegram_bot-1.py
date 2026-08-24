@@ -3,11 +3,16 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-from telegram import Update
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
 from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
     ContextTypes
 )
@@ -44,6 +49,8 @@ Foydalanuvchilarga o'zbek tilida qisqa, aniq va foydali javob bering.
 
 
 # ============================================
+# LOGGING / API
+# ============================================
 
 logging.basicConfig(level=logging.INFO)
 
@@ -63,7 +70,7 @@ def load_users():
     try:
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except Exception:
         return {}
 
 
@@ -76,7 +83,7 @@ users = load_users()
 
 
 # ============================================
-# FOYDALANUVCHINI SAQLASH
+# FOYDALANUVCHI
 # ============================================
 
 def save_user_info(user):
@@ -112,7 +119,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "👋 Salom!\n\n"
         "🤖 Men Aqilliyordam AI botiman.\n\n"
         "🆓 Sizga 3 ta savolga bepul javob beriladi.\n"
-        "💳 Keyingi savollar uchun 7 kunlik obuna kerak.\n\n"
+        "💎 Keyingi savollar uchun 7 kunlik obuna kerak.\n\n"
         "📌 Obuna olish: /buy"
     )
 
@@ -129,10 +136,268 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"💰 Narx: {WEEKLY_PRICE}\n\n"
         "💳 To'lov uchun karta:\n"
         f"{CARD_NUMBER}\n\n"
-        "To'lovni amalga oshirgach, "
-        "chekni adminga yuboring.\n\n"
-        f"👨‍💻 Admin: {ADMIN_USERNAME}"
+        "1️⃣ Yuqoridagi kartaga to'lov qiling.\n"
+        "2️⃣ To'lov chekini shu botga yuboring.\n"
+        "3️⃣ Admin tekshiradi va obunangizni faollashtiradi.\n\n"
+        "⚠️ Chekni aynan shu botga yuboring."
     )
+
+
+# ============================================
+# CHEKNI ADMINDA TASDIQLASH
+# ============================================
+
+async def send_receipt_to_admin(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    file_id: str,
+    is_document: bool = False
+):
+
+    user = update.effective_user
+    user_id = user.id
+
+    username = (
+        f"@{user.username}"
+        if user.username
+        else "username yo'q"
+    )
+
+    name = " ".join(
+        x for x in [user.first_name, user.last_name] if x
+    )
+
+    if not name:
+        name = "Ism yo'q"
+
+    caption = (
+        "💳 YANGI TO'LOV CHEKI\n\n"
+        f"👤 Ism: {name}\n"
+        f"🔗 Username: {username}\n"
+        f"🆔 User ID: {user_id}\n\n"
+        f"💰 Narx: {WEEKLY_PRICE}\n"
+        "⏳ Tasdiqlashni kutmoqda..."
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                "✅ TASDIQLASH",
+                callback_data=f"approve:{user_id}"
+            ),
+            InlineKeyboardButton(
+                "❌ RAD ETISH",
+                callback_data=f"reject:{user_id}"
+            )
+        ]
+    ])
+
+    if is_document:
+        await context.bot.send_document(
+            chat_id=ADMIN_ID,
+            document=file_id,
+            caption=caption,
+            reply_markup=keyboard
+        )
+    else:
+        await context.bot.send_photo(
+            chat_id=ADMIN_ID,
+            photo=file_id,
+            caption=caption,
+            reply_markup=keyboard
+        )
+
+    await update.message.reply_text(
+        "✅ Chekingiz adminga yuborildi.\n\n"
+        "⏳ To'lov tekshirilmoqda.\n"
+        "Tasdiqlangandan keyin 7 kunlik obuna avtomatik faollashadi."
+    )
+
+
+# ============================================
+# RASM CHEK
+# ============================================
+
+async def handle_receipt_photo(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    save_user_info(update.effective_user)
+
+    photo = update.message.photo[-1]
+
+    await send_receipt_to_admin(
+        update,
+        context,
+        photo.file_id,
+        is_document=False
+    )
+
+
+# ============================================
+# PDF / FILE CHEK
+# ============================================
+
+async def handle_receipt_document(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    save_user_info(update.effective_user)
+
+    document = update.message.document
+
+    await send_receipt_to_admin(
+        update,
+        context,
+        document.file_id,
+        is_document=True
+    )
+
+
+# ============================================
+# ADMIN TUGMALARINI BOSISH
+# ============================================
+
+async def receipt_action(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    # Faqat admin
+    if query.from_user.id != ADMIN_ID:
+        await query.answer(
+            "❌ Siz admin emassiz!",
+            show_alert=True
+        )
+        return
+
+    data = query.data
+
+    # ========================================
+    # TASDIQLASH
+    # ========================================
+
+    if data.startswith("approve:"):
+
+        user_id = data.split(":")[1]
+
+        if user_id not in users:
+            users[user_id] = {
+                "free_used": FREE_MESSAGES,
+                "subscription_until": None,
+                "username": None,
+                "first_name": None,
+                "last_name": None
+            }
+
+        # Agar eski obuna hali tugamagan bo'lsa,
+        # yangi 7 kunni eski muddatga qo'shamiz
+        old_until = users[user_id].get(
+            "subscription_until"
+        )
+
+        now = datetime.now()
+
+        if old_until:
+            try:
+                old_date = datetime.fromisoformat(old_until)
+
+                if old_date > now:
+                    until = old_date + timedelta(
+                        days=SUBSCRIPTION_DAYS
+                    )
+                else:
+                    until = now + timedelta(
+                        days=SUBSCRIPTION_DAYS
+                    )
+
+            except Exception:
+                until = now + timedelta(
+                    days=SUBSCRIPTION_DAYS
+                )
+
+        else:
+            until = now + timedelta(
+                days=SUBSCRIPTION_DAYS
+            )
+
+        users[user_id]["subscription_until"] = (
+            until.isoformat()
+        )
+
+        # Bepul limitni ham tugatib qo'yamiz
+        users[user_id]["free_used"] = FREE_MESSAGES
+
+        save_users(users)
+
+        # Foydalanuvchiga xabar
+        try:
+            await context.bot.send_message(
+                chat_id=int(user_id),
+                text=(
+                    "🎉 TO'LOV TASDIQLANDI!\n\n"
+                    "✅ AI Yordam obunangiz faollashtirildi.\n\n"
+                    f"💎 Muddat: {SUBSCRIPTION_DAYS} kun\n"
+                    f"📅 Tugash sanasi: "
+                    f"{until.strftime('%d.%m.%Y %H:%M')}\n\n"
+                    "🤖 Endi AI yordamchidan foydalanishingiz mumkin!"
+                )
+            )
+        except Exception as e:
+            logging.error(
+                f"Foydalanuvchiga xabar yuborishda xato: {e}"
+            )
+
+        # Admin xabarini yangilash
+        await query.edit_message_caption(
+            caption=(
+                query.message.caption +
+                "\n\n"
+                "━━━━━━━━━━━━━━\n"
+                "✅ TO'LOV TASDIQLANDI\n"
+                f"📅 {SUBSCRIPTION_DAYS} kunlik obuna berildi."
+            ),
+            reply_markup=None
+        )
+
+    # ========================================
+    # RAD ETISH
+    # ========================================
+
+    elif data.startswith("reject:"):
+
+        user_id = data.split(":")[1]
+
+        try:
+            await context.bot.send_message(
+                chat_id=int(user_id),
+                text=(
+                    "❌ To'lov chekingiz tasdiqlanmadi.\n\n"
+                    "Iltimos, to'lov chekini tekshirib, "
+                    "qaytadan yuboring yoki admin bilan bog'laning.\n\n"
+                    f"👨‍💻 Admin: {ADMIN_USERNAME}"
+                )
+            )
+        except Exception as e:
+            logging.error(
+                f"Rad javobini yuborishda xato: {e}"
+            )
+
+        await query.edit_message_caption(
+            caption=(
+                query.message.caption +
+                "\n\n"
+                "━━━━━━━━━━━━━━\n"
+                "❌ TO'LOV RAD ETILDI."
+            ),
+            reply_markup=None
+        )
 
 
 # ============================================
@@ -140,7 +405,10 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # /activate USER_ID
 # ============================================
 
-async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def activate(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text(
@@ -166,25 +434,32 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "last_name": None
         }
 
-    until = datetime.now() + timedelta(days=SUBSCRIPTION_DAYS)
+    until = datetime.now() + timedelta(
+        days=SUBSCRIPTION_DAYS
+    )
 
-    users[user_id]["subscription_until"] = until.isoformat()
+    users[user_id]["subscription_until"] = (
+        until.isoformat()
+    )
 
     save_users(users)
 
     await update.message.reply_text(
-        f"✅ Obuna faollashtirildi!\n\n"
+        "✅ Obuna faollashtirildi!\n\n"
         f"👤 User ID: {user_id}\n"
         f"📅 {SUBSCRIPTION_DAYS} kunlik obuna berildi."
     )
 
 
 # ============================================
-# ADMIN - FOYDALANUVCHILAR RO'YXATI
+# ADMIN FOYDALANUVCHILAR
 # /users
 # ============================================
 
-async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def show_users(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
     if update.effective_user.id != ADMIN_ID:
         await update.message.reply_text(
@@ -200,9 +475,13 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     total = len(users)
 
-    text = f"👥 JAMI FOYDALANUVCHILAR: {total}\n\n"
+    text = (
+        f"👥 JAMI FOYDALANUVCHILAR: {total}\n\n"
+    )
 
-    for number, (user_id, data) in enumerate(users.items(), 1):
+    for number, (user_id, data) in enumerate(
+        users.items(), 1
+    ):
 
         username = data.get("username")
         first_name = data.get("first_name")
@@ -220,36 +499,53 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not full_name:
             full_name = "Ism yo'q"
 
-        free_used = data.get("free_used", 0)
+        free_used = data.get(
+            "free_used", 0
+        )
 
-        subscription = data.get("subscription_until")
+        subscription = data.get(
+            "subscription_until"
+        )
 
         if subscription:
             try:
-                until = datetime.fromisoformat(subscription)
+                until = datetime.fromisoformat(
+                    subscription
+                )
 
                 if datetime.now() < until:
-                    subscription_text = "✅ Faol"
+                    subscription_text = (
+                        "✅ Faol"
+                    )
                 else:
-                    subscription_text = "❌ Tugagan"
+                    subscription_text = (
+                        "❌ Tugagan"
+                    )
 
-            except:
-                subscription_text = "❌ Noma'lum"
+            except Exception:
+                subscription_text = (
+                    "❌ Noma'lum"
+                )
         else:
-            subscription_text = "❌ Obuna yo'q"
+            subscription_text = (
+                "❌ Obuna yo'q"
+            )
 
         text += (
             f"{number}. 👤 {full_name}\n"
             f"   🆔 ID: {user_id}\n"
             f"   🔗 {username_text}\n"
-            f"   🆓 Bepul: {free_used}/{FREE_MESSAGES}\n"
-            f"   💎 Obuna: {subscription_text}\n\n"
+            f"   🆓 Bepul: "
+            f"{free_used}/{FREE_MESSAGES}\n"
+            f"   💎 Obuna: "
+            f"{subscription_text}\n\n"
         )
 
-        # Telegram xabar limiti
         if len(text) > 3500:
 
-            await update.message.reply_text(text)
+            await update.message.reply_text(
+                text
+            )
 
             text = "👥 DAVOMI:\n\n"
 
@@ -258,21 +554,28 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================
-# MESSAGE
+# AI MESSAGE
 # ============================================
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE
+):
 
-    user_id = str(update.effective_user.id)
+    user_id = str(
+        update.effective_user.id
+    )
+
     user_text = update.message.text
 
-    # Foydalanuvchi ma'lumotlarini saqlash
-    save_user_info(update.effective_user)
+    save_user_info(
+        update.effective_user
+    )
 
     user = users[user_id]
 
     # ========================================
-    # OBUNA TEKSHIRISH
+    # OBUNANI TEKSHIRISH
     # ========================================
 
     subscription_active = False
@@ -280,6 +583,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user.get("subscription_until"):
 
         try:
+
             until = datetime.fromisoformat(
                 user["subscription_until"]
             )
@@ -287,12 +591,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if datetime.now() < until:
                 subscription_active = True
 
-        except:
+        except Exception:
             subscription_active = False
 
-
     # ========================================
-    # PULSIZ LIMIT
+    # BEPUL LIMIT
     # ========================================
 
     if not subscription_active:
@@ -302,15 +605,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             save_users(users)
 
             await update.message.reply_text(
-                "🔒 Bepul savolingiz tugadi.\n\n"
-                "🤖 Botdan foydalanishni davom ettirish "
-                "uchun 7 kunlik obuna oling.\n\n"
+                "🔒 Bepul savollaringiz tugadi.\n\n"
+                "🤖 Botdan foydalanishni davom "
+                "ettirish uchun 7 kunlik obuna oling.\n\n"
                 f"💰 Narx: {WEEKLY_PRICE}\n"
-                "💳 To'lov ma'lumotlari uchun: /buy"
+                "💳 To'lov: /buy"
             )
 
             return
-
 
     # ========================================
     # CLAUDE API
@@ -337,11 +639,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         save_users(users)
 
-        await update.message.reply_text(answer)
+        await update.message.reply_text(
+            answer
+        )
 
     except Exception as e:
 
-        logging.error(f"Xatolik: {e}")
+        logging.error(
+            f"Xatolik: {e}"
+        )
 
         await update.message.reply_text(
             "❌ Kechirasiz, xatolik yuz berdi. "
@@ -355,27 +661,68 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
 
-    app = Application.builder().token(
-        TELEGRAM_BOT_TOKEN
-    ).build()
-
-    app.add_handler(
-        CommandHandler("start", start)
+    app = (
+        Application.builder()
+        .token(TELEGRAM_BOT_TOKEN)
+        .build()
     )
 
+    # START
     app.add_handler(
-        CommandHandler("buy", buy)
+        CommandHandler(
+            "start",
+            start
+        )
     )
 
+    # BUY
     app.add_handler(
-        CommandHandler("activate", activate)
+        CommandHandler(
+            "buy",
+            buy
+        )
     )
 
-    # ADMIN FOYDALANUVCHILARNI KO'RISH
+    # ADMIN ACTIVATE
     app.add_handler(
-        CommandHandler("users", show_users)
+        CommandHandler(
+            "activate",
+            activate
+        )
     )
 
+    # ADMIN USERS
+    app.add_handler(
+        CommandHandler(
+            "users",
+            show_users
+        )
+    )
+
+    # CHEK - RASM
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO,
+            handle_receipt_photo
+        )
+    )
+
+    # CHEK - PDF / FILE
+    app.add_handler(
+        MessageHandler(
+            filters.Document.ALL,
+            handle_receipt_document
+        )
+    )
+
+    # ADMIN TASDIQLASH / RAD ETISH
+    app.add_handler(
+        CallbackQueryHandler(
+            receipt_action
+        )
+    )
+
+    # AI TEXT
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
