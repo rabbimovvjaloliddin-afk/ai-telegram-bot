@@ -34,7 +34,7 @@ WEEKLY_PRICE = os.environ.get(
     "10 000 so'm"
 )
 
-FREE_MESSAGES = 2
+FREE_MESSAGES = 3
 SUBSCRIPTION_DAYS = 7
 
 SYSTEM_PROMPT = """
@@ -93,7 +93,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "👋 Salom!\n\n"
         "🤖 Men Aqilliyordam AI botiman.\n\n"
-        "🆓 Sizga 2 ta bepul savol beriladi.\n"
+        "🆓 Sizga 3 ta bepul javob beriladi.\n"
         "💳 Keyingi savollar uchun 7 kunlik obuna kerak.\n\n"
         "📌 Obuna olish: /buy"
     )
