@@ -16,11 +16,11 @@ from anthropic import Anthropic
 # ============================================
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
-ADMIN_ID = int(os.environ["ADMIN_ID"])  # sizning Telegram ID'ingiz (raqam)
-CARD_NUMBER = os.environ.get("CARD_NUMBER", "8600 XXXX XXXX XXXX")  # to'lov uchun karta
-WEEKLY_PRICE = os.environ.get("WEEKLY_PRICE", "20 000 so'm")
+ADMIN_ID = int(os.environ["@jaloliddino7"])  # sizning Telegram ID'ingiz (raqam)
+CARD_NUMBER = os.environ.get("CARD_NUMBER", "5614 6818 1198 0360")  # to'lov uchun karta
+WEEKLY_PRICE = os.environ.get("WEEKLY_PRICE", "10 000 so'm")
 
-FREE_MESSAGES = 1          # necha ta savol bepul
+FREE_MESSAGES = 2          # necha ta savol bepul
 SUBSCRIPTION_DAYS = 7       # obuna necha kunlik
 
 # Botning "shaxsiyati" - shu yerni o'zgartirib, botni o'z bizneslaringizga moslashtiring
@@ -192,7 +192,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Faqat oxirgi 10 ta xabarni saqlaymiz (xotira tejash uchun)
     user_histories[user_id] = user_histories[user_id][-10:]
 
-    try:
+   try:
         response = client.messages.create(
             model="claude-sonnet-5",
             max_tokens=500,
