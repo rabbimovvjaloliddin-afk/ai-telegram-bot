@@ -26,7 +26,7 @@ ADMIN_USERNAME = "@jaloliddino7"
 
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
-    "5614 6818 1198 0360"
+    "5614681811980360"
 )
 
 WEEKLY_PRICE = os.environ.get(
