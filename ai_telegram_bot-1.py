@@ -76,24 +76,42 @@ users = load_users()
 
 
 # ============================================
+# FOYDALANUVCHINI SAQLASH
+# ============================================
+
+def save_user_info(user):
+
+    user_id = str(user.id)
+
+    if user_id not in users:
+        users[user_id] = {
+            "free_used": 0,
+            "subscription_until": None,
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name
+        }
+
+    else:
+        users[user_id]["username"] = user.username
+        users[user_id]["first_name"] = user.first_name
+        users[user_id]["last_name"] = user.last_name
+
+    save_users(users)
+
+
+# ============================================
 # START
 # ============================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    user_id = str(update.effective_user.id)
-
-    if user_id not in users:
-        users[user_id] = {
-            "free_used": 0,
-            "subscription_until": None
-        }
-        save_users(users)
+    save_user_info(update.effective_user)
 
     await update.message.reply_text(
         "👋 Salom!\n\n"
         "🤖 Men Aqilliyordam AI botiman.\n\n"
-        "🆓 Sizga 3 ta bepul javob beriladi.\n"
+        "🆓 Sizga 3 ta savolga bepul javob beriladi.\n"
         "💳 Keyingi savollar uchun 7 kunlik obuna kerak.\n\n"
         "📌 Obuna olish: /buy"
     )
@@ -142,7 +160,10 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in users:
         users[user_id] = {
             "free_used": FREE_MESSAGES,
-            "subscription_until": None
+            "subscription_until": None,
+            "username": None,
+            "first_name": None,
+            "last_name": None
         }
 
     until = datetime.now() + timedelta(days=SUBSCRIPTION_DAYS)
@@ -159,6 +180,84 @@ async def activate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ============================================
+# ADMIN - FOYDALANUVCHILAR RO'YXATI
+# /users
+# ============================================
+
+async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if update.effective_user.id != ADMIN_ID:
+        await update.message.reply_text(
+            "❌ Bu buyruq faqat admin uchun."
+        )
+        return
+
+    if not users:
+        await update.message.reply_text(
+            "📭 Hozircha foydalanuvchilar yo'q."
+        )
+        return
+
+    total = len(users)
+
+    text = f"👥 JAMI FOYDALANUVCHILAR: {total}\n\n"
+
+    for number, (user_id, data) in enumerate(users.items(), 1):
+
+        username = data.get("username")
+        first_name = data.get("first_name")
+        last_name = data.get("last_name")
+
+        if username:
+            username_text = f"@{username}"
+        else:
+            username_text = "username yo'q"
+
+        full_name = " ".join(
+            x for x in [first_name, last_name] if x
+        )
+
+        if not full_name:
+            full_name = "Ism yo'q"
+
+        free_used = data.get("free_used", 0)
+
+        subscription = data.get("subscription_until")
+
+        if subscription:
+            try:
+                until = datetime.fromisoformat(subscription)
+
+                if datetime.now() < until:
+                    subscription_text = "✅ Faol"
+                else:
+                    subscription_text = "❌ Tugagan"
+
+            except:
+                subscription_text = "❌ Noma'lum"
+        else:
+            subscription_text = "❌ Obuna yo'q"
+
+        text += (
+            f"{number}. 👤 {full_name}\n"
+            f"   🆔 ID: {user_id}\n"
+            f"   🔗 {username_text}\n"
+            f"   🆓 Bepul: {free_used}/{FREE_MESSAGES}\n"
+            f"   💎 Obuna: {subscription_text}\n\n"
+        )
+
+        # Telegram xabar limiti
+        if len(text) > 3500:
+
+            await update.message.reply_text(text)
+
+            text = "👥 DAVOMI:\n\n"
+
+    if text.strip():
+        await update.message.reply_text(text)
+
+
+# ============================================
 # MESSAGE
 # ============================================
 
@@ -167,11 +266,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = str(update.effective_user.id)
     user_text = update.message.text
 
-    if user_id not in users:
-        users[user_id] = {
-            "free_used": 0,
-            "subscription_until": None
-        }
+    # Foydalanuvchi ma'lumotlarini saqlash
+    save_user_info(update.effective_user)
 
     user = users[user_id]
 
@@ -273,6 +369,11 @@ def main():
 
     app.add_handler(
         CommandHandler("activate", activate)
+    )
+
+    # ADMIN FOYDALANUVCHILARNI KO'RISH
+    app.add_handler(
+        CommandHandler("users", show_users)
     )
 
     app.add_handler(
