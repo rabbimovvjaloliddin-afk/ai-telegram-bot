@@ -4,7 +4,11 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Update,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup
+)
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -16,9 +20,9 @@ from telegram.ext import (
 from anthropic import Anthropic
 
 
-# ============================================
+# ============================================================
 # SOZLAMALAR
-# ============================================
+# ============================================================
 
 TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
@@ -26,6 +30,7 @@ ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
 ADMIN_ID = 6078096693
 ADMIN_USERNAME = "@jaloliddino7"
 
+# AI OBUNA TO'LOVI
 CARD_NUMBER = os.environ.get(
     "CARD_NUMBER",
     "5614 6818 1198 0360"
@@ -36,16 +41,31 @@ WEEKLY_PRICE = os.environ.get(
     "10 000 so'm"
 )
 
-FREE_MESSAGES = 3
-REFERRAL_BONUS = 2
 SUBSCRIPTION_DAYS = 7
+
+# BEPUL AI
+FREE_MESSAGES = 3
+
+# REFERRAL
+REFERRAL_REWARD = 1500
+MIN_WITHDRAW = 10000
 
 DATA_FILE = "users.json"
 
 
-# ============================================
+# ============================================================
+# LOG
+# ============================================================
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
+
+# ============================================================
 # AI
-# ============================================
+# ============================================================
 
 SYSTEM_PROMPT = """
 Siz Aqilliyordam AI nomli foydali AI yordamchisiz.
@@ -53,6 +73,7 @@ Siz Aqilliyordam AI nomli foydali AI yordamchisiz.
 Foydalanuvchiga o'zbek tilida aniq, tushunarli va foydali javob bering.
 
 Siz quyidagilarda yordam bera olasiz:
+
 - Matn yozish
 - Insho yozish
 - Telegram bot yaratish
@@ -60,32 +81,31 @@ Siz quyidagilarda yordam bera olasiz:
 - Dars va uy vazifalari
 - Tarjima
 - G'oya topish
-- Kod yozish va tushuntirish
+- Kod yozish
+- Kodni tushuntirish
 - Turli savollarga javob berish
 
-Javoblarda Markdown belgilaridan foydalanmang.
-**qalin**, *kursiv*, # sarlavha va ```kod``` kabi
-belgilarni ishlatmang.
+Javoblarni o'zbek tilida bering, agar foydalanuvchi boshqa tilni so'rasa,
+o'sha tilda javob berishingiz mumkin.
 
+Markdown belgilaridan foydalanmang.
 Oddiy matn, emoji va yangi qatorlardan foydalaning.
 """
 
-
-logging.basicConfig(level=logging.INFO)
 
 client = Anthropic(
     api_key=ANTHROPIC_API_KEY
 )
 
 
-# ============================================
+# ============================================================
 # MARKDOWN TOZALASH
-# ============================================
+# ============================================================
 
 def clean_markdown(text):
 
     if not text:
-        return text
+        return ""
 
     text = re.sub(
         r"```(?:\w+\n)?(.*?)```",
@@ -128,9 +148,9 @@ def clean_markdown(text):
     return text.strip()
 
 
-# ============================================
+# ============================================================
 # DATABASE
-# ============================================
+# ============================================================
 
 def load_users():
 
@@ -145,35 +165,86 @@ def load_users():
             encoding="utf-8"
         ) as f:
 
-            return json.load(f)
+            data = json.load(f)
 
-    except Exception:
+            if isinstance(data, dict):
+                return data
+
+            return {}
+
+    except Exception as e:
+
+        logging.error(
+            f"Database o'qishda xato: {e}"
+        )
 
         return {}
 
 
 def save_users():
 
-    with open(
-        DATA_FILE,
-        "w",
-        encoding="utf-8"
-    ) as f:
+    try:
 
-        json.dump(
-            users,
-            f,
-            ensure_ascii=False,
-            indent=2
+        temp_file = DATA_FILE + ".tmp"
+
+        with open(
+            temp_file,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            json.dump(
+                users,
+                f,
+                ensure_ascii=False,
+                indent=2
+            )
+
+        os.replace(
+            temp_file,
+            DATA_FILE
+        )
+
+    except Exception as e:
+
+        logging.error(
+            f"Database saqlashda xato: {e}"
         )
 
 
 users = load_users()
 
 
-# ============================================
-# USER SAQLASH
-# ============================================
+# ============================================================
+# USER MA'LUMOTLARI
+# ============================================================
+
+def default_user(user):
+
+    return {
+        "free_used": 0,
+
+        "subscription_until": None,
+
+        "username": user.username,
+
+        "first_name": user.first_name,
+
+        "last_name": user.last_name,
+
+        "referrals": [],
+
+        "referred_by": None,
+
+        # Referral balansi
+        "balance": 0,
+
+        # Pul chiqarish
+        "withdrawal_card": None,
+
+        "withdrawal_pending": False
+    }
+
 
 def save_user_info(user):
 
@@ -181,47 +252,57 @@ def save_user_info(user):
 
     if user_id not in users:
 
-        users[user_id] = {
-            "free_used": 0,
-            "subscription_until": None,
-            "username": user.username,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "referrals": [],
-            "referred_by": None
-        }
+        users[user_id] = default_user(user)
 
     else:
 
-        users[user_id]["username"] = user.username
-        users[user_id]["first_name"] = user.first_name
-        users[user_id]["last_name"] = user.last_name
+        data = users[user_id]
 
-        if "referrals" not in users[user_id]:
-            users[user_id]["referrals"] = []
+        data["username"] = user.username
+        data["first_name"] = user.first_name
+        data["last_name"] = user.last_name
 
-        if "referred_by" not in users[user_id]:
-            users[user_id]["referred_by"] = None
+        if "free_used" not in data:
+            data["free_used"] = 0
+
+        if "subscription_until" not in data:
+            data["subscription_until"] = None
+
+        if "referrals" not in data:
+            data["referrals"] = []
+
+        if "referred_by" not in data:
+            data["referred_by"] = None
+
+        if "balance" not in data:
+            data["balance"] = 0
+
+        if "withdrawal_card" not in data:
+            data["withdrawal_card"] = None
+
+        if "withdrawal_pending" not in data:
+            data["withdrawal_pending"] = False
 
     save_users()
 
 
-# ============================================
+# ============================================================
 # START
-# ============================================
+# ============================================================
 
 async def start(update, context):
 
     user = update.effective_user
+
     user_id = str(user.id)
 
     new_user = user_id not in users
 
     save_user_info(user)
 
-    # ========================================
+    # ========================================================
     # REFERRAL
-    # ========================================
+    # ========================================================
 
     if new_user and context.args:
 
@@ -246,12 +327,18 @@ async def start(update, context):
                     user_id
                 )
 
-                # +2 bepul savol
-                ref_user["free_used"] = max(
-                    0,
-                    ref_user.get("free_used", 0)
-                    - REFERRAL_BONUS
+                # 1500 so'm qo'shish
+                old_balance = ref_user.get(
+                    "balance",
+                    0
                 )
+
+                new_balance = (
+                    old_balance
+                    + REFERRAL_REWARD
+                )
+
+                ref_user["balance"] = new_balance
 
                 users[user_id]["referred_by"] = (
                     referral_id
@@ -262,14 +349,21 @@ async def start(update, context):
                 try:
 
                     await context.bot.send_message(
+
                         chat_id=int(referral_id),
+
                         text=(
                             "🎉 YANGI DO'STINGIZ QO'SHILDI!\n\n"
-                            f"🎁 Sizga +{REFERRAL_BONUS} ta "
-                            "bepul savol berildi.\n\n"
-                            f"👥 Jami takliflaringiz: "
-                            f"{len(ref_user['referrals'])} ta"
-                        )
+
+                            f"💰 +{REFERRAL_REWARD:,} so'm "
+                            "balansingizga qo'shildi.\n\n"
+
+                            f"💳 Joriy balans: "
+                            f"{new_balance:,} so'm\n\n"
+
+                            f"🔓 Minimal yechish: "
+                            f"{MIN_WITHDRAW:,} so'm"
+                        ).replace(",", " ")
                     )
 
                 except Exception as e:
@@ -278,9 +372,9 @@ async def start(update, context):
                         f"Referral xatosi: {e}"
                     )
 
-    # ========================================
+    # ========================================================
     # MENU
-    # ========================================
+    # ========================================================
 
     keyboard = InlineKeyboardMarkup([
 
@@ -295,6 +389,20 @@ async def start(update, context):
             InlineKeyboardButton(
                 "👥 DO'ST TAKLIF QILISH",
                 callback_data="referral"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "💰 BALANS",
+                callback_data="balance"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "💸 PUL CHIQARISH",
+                callback_data="withdraw"
             )
         ],
 
@@ -315,7 +423,7 @@ async def start(update, context):
 
         "🤖 Aqilliyordam AI botiga xush kelibsiz!\n\n"
 
-        "🧠 Men sizga ko'plab vazifalarda yordam beraman.\n\n"
+        "🧠 Men sizga quyidagilarda yordam beraman:\n\n"
 
         "📝 Matn yozish\n"
         "📚 Insho yozish\n"
@@ -324,24 +432,30 @@ async def start(update, context):
         "🌍 Tarjima\n"
         "📖 Dars va uy vazifalari\n"
         "💡 G'oya topish\n"
-        "💻 Kod yozish\n\n"
+        "💻 Kod yozish\n"
+        "❓ Turli savollarga javob\n\n"
 
         f"🆓 Sizda {FREE_MESSAGES} ta bepul savol bor.\n"
-        f"💎 Keyin {SUBSCRIPTION_DAYS} kunlik obuna kerak.\n\n"
+        f"💰 Referral uchun: {REFERRAL_REWARD:,} so'm\n"
+        f"💸 Minimal yechish: {MIN_WITHDRAW:,} so'm\n\n"
 
-        "👇 Quyidagi menyudan foydalaning:",
+        "👇 Menyudan foydalaning:"
+    ).replace(",", " ")
 
+    # Tugmalarni alohida yuboramiz
+    await update.message.reply_text(
+        "👇 Tanlang:",
         reply_markup=keyboard
     )
 
 
-# ============================================
+# ============================================================
 # BUY
-# ============================================
+# ============================================================
 
-async def buy(update, context):
+async def send_buy_message(message):
 
-    await update.message.reply_text(
+    await message.reply_text(
 
         "💎 AI YORDAM OBUNASI\n\n"
 
@@ -360,9 +474,281 @@ async def buy(update, context):
     )
 
 
-# ============================================
-# BUTTONLAR
-# ============================================
+async def buy(update, context):
+
+    await send_buy_message(
+        update.message
+    )
+
+
+# ============================================================
+# BALANCE
+# ============================================================
+
+async def balance_command(update, context):
+
+    user = update.effective_user
+
+    save_user_info(user)
+
+    user_id = str(user.id)
+
+    balance = users[user_id].get(
+        "balance",
+        0
+    )
+
+    referrals = len(
+        users[user_id].get(
+            "referrals",
+            []
+        )
+    )
+
+    text = (
+
+        "💰 SIZNING BALANSINGIZ\n\n"
+
+        f"💵 Balans: {balance:,} so'm\n"
+        f"👥 Takliflar: {referrals} ta\n\n"
+
+        f"💸 Minimal yechish: "
+        f"{MIN_WITHDRAW:,} so'm\n\n"
+    )
+
+    if balance >= MIN_WITHDRAW:
+
+        text += (
+            "✅ Pul chiqarishingiz mumkin!\n\n"
+            "💳 /withdraw buyrug'ini bosing."
+        )
+
+    else:
+
+        remaining = (
+            MIN_WITHDRAW - balance
+        )
+
+        text += (
+            f"🔒 Yana {remaining:,} so'm kerak."
+        )
+
+    await update.message.reply_text(
+        text.replace(",", " ")
+    )
+
+
+# ============================================================
+# WITHDRAW
+# ============================================================
+
+async def withdraw_command(update, context):
+
+    user = update.effective_user
+
+    save_user_info(user)
+
+    user_id = str(user.id)
+
+    user_data = users[user_id]
+
+    balance = user_data.get(
+        "balance",
+        0
+    )
+
+    if balance < MIN_WITHDRAW:
+
+        remaining = (
+            MIN_WITHDRAW - balance
+        )
+
+        await update.message.reply_text(
+
+            "❌ Pul chiqarish mumkin emas.\n\n"
+
+            f"💰 Balans: {balance:,} so'm\n"
+            f"🔒 Minimum: {MIN_WITHDRAW:,} so'm\n\n"
+
+            f"Yana {remaining:,} so'm yig'ing."
+        ).replace(",", " ")
+
+        return
+
+    if user_data.get(
+        "withdrawal_pending",
+        False
+    ):
+
+        await update.message.reply_text(
+
+            "⏳ Sizda allaqachon pul chiqarish "
+            "so'rovi mavjud.\n\n"
+
+            "Admin tasdiqlashini kuting."
+        )
+
+        return
+
+    user_data["withdrawal_pending"] = True
+
+    save_users()
+
+    await update.message.reply_text(
+
+        "💳 PUL CHIQARISH\n\n"
+
+        f"💰 Sizning balansingiz: "
+        f"{balance:,} so'm\n\n"
+
+        "Karta raqamingizni yuboring.\n\n"
+
+        "Masalan:\n"
+        "8600123456789012\n\n"
+
+        "⚠️ Faqat pul qabul qiladigan "
+        "o'zingizga tegishli karta raqamini yuboring."
+    ).replace(",", " ")
+
+
+# ============================================================
+# WITHDRAW CARD
+# ============================================================
+
+async def handle_withdraw_card(update, context):
+
+    user = update.effective_user
+
+    user_id = str(user.id)
+
+    if user_id not in users:
+        return
+
+    user_data = users[user_id]
+
+    if not user_data.get(
+        "withdrawal_pending",
+        False
+    ):
+        return
+
+    card_text = update.message.text.strip()
+
+    card = re.sub(
+        r"[^0-9]",
+        "",
+        card_text
+    )
+
+    # Oddiy 16 xonali tekshiruv
+    if len(card) != 16:
+
+        await update.message.reply_text(
+
+            "❌ Karta raqami noto'g'ri.\n\n"
+
+            "16 xonali karta raqamini yuboring.\n\n"
+
+            "Masalan:\n"
+            "8600123456789012"
+        )
+
+        return
+
+    balance = user_data.get(
+        "balance",
+        0
+    )
+
+    if balance < MIN_WITHDRAW:
+
+        user_data["withdrawal_pending"] = False
+
+        save_users()
+
+        await update.message.reply_text(
+            "❌ Balansingiz yetarli emas."
+        )
+
+        return
+
+    user_data["withdrawal_card"] = card
+
+    save_users()
+
+    username = (
+        f"@{user.username}"
+        if user.username
+        else "username yo'q"
+    )
+
+    full_name = " ".join(
+        x for x in [
+            user.first_name,
+            user.last_name
+        ]
+        if x
+    )
+
+    if not full_name:
+        full_name = "Ism yo'q"
+
+    keyboard = InlineKeyboardMarkup([
+
+        [
+
+            InlineKeyboardButton(
+                "✅ TO'LANDI",
+                callback_data=(
+                    f"withdraw_paid:{user_id}"
+                )
+            ),
+
+            InlineKeyboardButton(
+                "❌ RAD ETISH",
+                callback_data=(
+                    f"withdraw_reject:{user_id}"
+                )
+            )
+
+        ]
+
+    ])
+
+    await context.bot.send_message(
+
+        chat_id=ADMIN_ID,
+
+        text=(
+
+            "💸 YANGI PUL CHIQARISH SO'ROVI\n\n"
+
+            f"👤 Ism: {full_name}\n"
+            f"🔗 Username: {username}\n"
+            f"🆔 User ID: {user_id}\n\n"
+
+            f"💰 Summa: {balance:,} so'm\n"
+            f"💳 Karta: {card}\n\n"
+
+            "⏳ To'lovni amalga oshirib, "
+            "TO'LANDI tugmasini bosing."
+        ).replace(",", " "),
+
+        reply_markup=keyboard
+    )
+
+    await update.message.reply_text(
+
+        "✅ So'rovingiz adminga yuborildi.\n\n"
+
+        f"💰 Summa: {balance:,} so'm\n"
+        "⏳ To'lov tasdiqlanishini kuting."
+    )
+
+
+# ============================================================
+# BUTTON HANDLER
+# ============================================================
 
 async def button_handler(update, context):
 
@@ -370,103 +756,211 @@ async def button_handler(update, context):
 
     await query.answer()
 
-    user_id = str(query.from_user.id)
+    user_id = str(
+        query.from_user.id
+    )
 
-    # ========================================
-    # OBUNA
-    # ========================================
+    # --------------------------------------------------------
+    # BUY
+    # --------------------------------------------------------
 
     if query.data == "buy_menu":
 
-        await query.message.reply_text(
-
-            "💎 AI YORDAM OBUNASI\n\n"
-
-            f"📅 Muddat: {SUBSCRIPTION_DAYS} kun\n"
-            f"💰 Narx: {WEEKLY_PRICE}\n\n"
-
-            "💳 TO'LOV UCHUN KARTA:\n"
-            f"{CARD_NUMBER}\n\n"
-
-            "1️⃣ Kartaga to'lov qiling.\n"
-            "2️⃣ Chekni shu botga yuboring.\n"
-            "3️⃣ Admin tekshiradi.\n"
-            "4️⃣ Tasdiqlangach obuna faollashadi.\n\n"
-
-            "📸 Chekni rasm yoki PDF qilib yuboring."
+        await send_buy_message(
+            query.message
         )
 
-    # ========================================
+    # --------------------------------------------------------
     # REFERRAL
-    # ========================================
+    # --------------------------------------------------------
 
     elif query.data == "referral":
 
-        bot_username = context.bot.username
+        bot_username = (
+            context.bot.username
+        )
 
         referral_link = (
             f"https://t.me/{bot_username}"
             f"?start=ref_{user_id}"
         )
 
+        data = users.get(
+            user_id,
+            {}
+        )
+
         count = len(
-            users.get(
-                user_id,
-                {}
-            ).get(
+            data.get(
                 "referrals",
                 []
             )
+        )
+
+        balance = data.get(
+            "balance",
+            0
         )
 
         await query.message.reply_text(
 
             "👥 DO'STLARNI TAKLIF QILING\n\n"
 
-            f"Har bir yangi do'stingiz uchun "
-            f"+{REFERRAL_BONUS} ta bepul savol olasiz! 🎁\n\n"
+            f"🎁 Har bir yangi foydalanuvchi "
+            f"uchun +{REFERRAL_REWARD:,} so'm!\n\n"
 
             "🔗 SIZNING TAKLIF HAVOLANGIZ:\n\n"
 
             f"{referral_link}\n\n"
 
-            f"👥 Taklif qilganlaringiz: "
-            f"{count} ta\n\n"
+            f"👥 Takliflar: {count} ta\n"
+            f"💰 Balans: {balance:,} so'm\n\n"
 
-            "📢 Havolani do'stlaringizga yuboring "
-            "va bepul savollar oling!"
+            f"💸 Minimal yechish: "
+            f"{MIN_WITHDRAW:,} so'm"
+        ).replace(",", " ")
+
+    # --------------------------------------------------------
+    # BALANCE
+    # --------------------------------------------------------
+
+    elif query.data == "balance":
+
+        data = users.get(
+            user_id,
+            {}
         )
 
-    # ========================================
-    # REKLAMA
-    # ========================================
+        balance = data.get(
+            "balance",
+            0
+        )
+
+        referrals = len(
+            data.get(
+                "referrals",
+                []
+            )
+        )
+
+        if balance >= MIN_WITHDRAW:
+
+            status = (
+                "✅ Pul chiqarish mumkin!\n\n"
+                "💳 /withdraw buyrug'ini bosing."
+            )
+
+        else:
+
+            remaining = (
+                MIN_WITHDRAW - balance
+            )
+
+            status = (
+                f"🔒 Yana {remaining:,} so'm kerak."
+            )
+
+        await query.message.reply_text(
+
+            "💰 BALANS\n\n"
+
+            f"💵 Balans: {balance:,} so'm\n"
+            f"👥 Referral: {referrals} ta\n"
+            f"💸 Minimum: {MIN_WITHDRAW:,} so'm\n\n"
+
+            f"{status}"
+        ).replace(",", " ")
+
+    # --------------------------------------------------------
+    # WITHDRAW
+    # --------------------------------------------------------
+
+    elif query.data == "withdraw":
+
+        data = users.get(
+            user_id,
+            {}
+        )
+
+        balance = data.get(
+            "balance",
+            0
+        )
+
+        if balance < MIN_WITHDRAW:
+
+            remaining = (
+                MIN_WITHDRAW - balance
+            )
+
+            await query.message.reply_text(
+
+                "❌ Hali pul chiqarish mumkin emas.\n\n"
+
+                f"💰 Balans: {balance:,} so'm\n"
+                f"🔒 Minimum: {MIN_WITHDRAW:,} so'm\n\n"
+
+                f"Yana {remaining:,} so'm kerak."
+            ).replace(",", " ")
+
+            return
+
+        if data.get(
+            "withdrawal_pending",
+            False
+        ):
+
+            await query.message.reply_text(
+                "⏳ So'rovingiz allaqachon adminga yuborilgan."
+            )
+
+            return
+
+        data["withdrawal_pending"] = True
+
+        save_users()
+
+        await query.message.reply_text(
+
+            "💳 KARTA RAQAMINGIZNI YUBORING\n\n"
+
+            f"💰 Yechiladigan summa: "
+            f"{balance:,} so'm\n\n"
+
+            "16 xonali karta raqamingizni yuboring."
+        ).replace(",", " ")
+
+    # --------------------------------------------------------
+    # ADVERTISEMENT
+    # --------------------------------------------------------
 
     elif query.data == "advertisement":
 
-        bot_username = context.bot.username
+        bot_username = (
+            context.bot.username
+        )
 
         advertisement = (
 
-            "📢 Aqilliyordam AI 🤖\n\n"
+            "📢 AQILLIYORDAM AI 🤖\n\n"
 
-            "Savolingiz bormi? AI sizga yordam beradi! 🚀\n\n"
+            "Savolingiz bormi? AI yordam beradi! 🚀\n\n"
 
             "📝 Matn yozish\n"
             "📚 Insho yozish\n"
             "🤖 Telegram bot yaratish\n"
             "🧠 Test tuzish\n"
-            "🌍 Tarjima qilish\n"
-            "📖 Dars va uy vazifalarida yordam\n"
+            "🌍 Tarjima\n"
+            "📖 Dars va uy vazifalari\n"
             "💡 G'oya topish\n"
             "💻 Kod yozish\n"
             "❓ Turli savollarga javob\n\n"
 
-            "🎁 Yangi foydalanuvchilarga "
+            "🎁 Yangi foydalanuvchiga "
             "3 ta savol BEPUL!\n\n"
 
-            "⚡ Tez va qulay foydalaning!\n\n"
-
             "👇 Hozir sinab ko'ring:\n"
+
             f"https://t.me/{bot_username}"
         )
 
@@ -475,9 +969,9 @@ async def button_handler(update, context):
         )
 
 
-# ============================================
-# CHEKNI ADMINDA KO'RSATISH
-# ============================================
+# ============================================================
+# RECEIPT ADMIN
+# ============================================================
 
 async def send_receipt_to_admin(
     update,
@@ -526,12 +1020,16 @@ async def send_receipt_to_admin(
 
             InlineKeyboardButton(
                 "✅ TASDIQLASH",
-                callback_data=f"approve:{user_id}"
+                callback_data=(
+                    f"approve:{user_id}"
+                )
             ),
 
             InlineKeyboardButton(
                 "❌ RAD ETISH",
-                callback_data=f"reject:{user_id}"
+                callback_data=(
+                    f"reject:{user_id}"
+                )
             )
 
         ]
@@ -541,18 +1039,26 @@ async def send_receipt_to_admin(
     if is_document:
 
         await context.bot.send_document(
+
             chat_id=ADMIN_ID,
+
             document=file_id,
+
             caption=caption,
+
             reply_markup=keyboard
         )
 
     else:
 
         await context.bot.send_photo(
+
             chat_id=ADMIN_ID,
+
             photo=file_id,
+
             caption=caption,
+
             reply_markup=keyboard
         )
 
@@ -566,9 +1072,9 @@ async def send_receipt_to_admin(
     )
 
 
-# ============================================
-# RASM CHEK
-# ============================================
+# ============================================================
+# PHOTO RECEIPT
+# ============================================================
 
 async def handle_receipt_photo(
     update,
@@ -582,16 +1088,19 @@ async def handle_receipt_photo(
     photo = update.message.photo[-1]
 
     await send_receipt_to_admin(
+
         update,
         context,
+
         photo.file_id,
+
         False
     )
 
 
-# ============================================
-# PDF CHEK
-# ============================================
+# ============================================================
+# PDF RECEIPT
+# ============================================================
 
 async def handle_receipt_document(
     update,
@@ -605,16 +1114,19 @@ async def handle_receipt_document(
     document = update.message.document
 
     await send_receipt_to_admin(
+
         update,
         context,
+
         document.file_id,
+
         True
     )
 
 
-# ============================================
-# ADMIN TASDIQLASH
-# ============================================
+# ============================================================
+# ADMIN RECEIPT ACTION
+# ============================================================
 
 async def receipt_action(
     update,
@@ -636,9 +1148,9 @@ async def receipt_action(
 
     data = query.data
 
-    # ========================================
-    # APPROVE
-    # ========================================
+    # ========================================================
+    # OBUNA TASDIQLASH
+    # ========================================================
 
     if data.startswith("approve:"):
 
@@ -653,7 +1165,10 @@ async def receipt_action(
                 "first_name": None,
                 "last_name": None,
                 "referrals": [],
-                "referred_by": None
+                "referred_by": None,
+                "balance": 0,
+                "withdrawal_card": None,
+                "withdrawal_pending": False
             }
 
         old_until = users[user_id].get(
@@ -728,7 +1243,8 @@ async def receipt_action(
 
                     "✅ Obunangiz faollashtirildi.\n\n"
 
-                    f"💎 Muddat: {SUBSCRIPTION_DAYS} kun\n"
+                    f"💎 Muddat: "
+                    f"{SUBSCRIPTION_DAYS} kun\n"
 
                     f"📅 Tugash sanasi: "
                     f"{until.strftime('%d.%m.%Y %H:%M')}\n\n"
@@ -744,22 +1260,30 @@ async def receipt_action(
                 f"User xabar xatosi: {e}"
             )
 
-        await query.edit_message_caption(
+        try:
 
-            caption=(
-                query.message.caption
-                + "\n\n"
-                "━━━━━━━━━━━━━━\n"
-                "✅ TO'LOV TASDIQLANDI\n"
-                f"📅 {SUBSCRIPTION_DAYS} kunlik obuna berildi."
-            ),
+            await query.edit_message_caption(
 
-            reply_markup=None
-        )
+                caption=(
+                    query.message.caption
+                    + "\n\n"
+                    "━━━━━━━━━━━━━━\n"
+                    "✅ TO'LOV TASDIQLANDI\n"
+                    f"📅 {SUBSCRIPTION_DAYS} kunlik obuna berildi."
+                ),
 
-    # ========================================
-    # REJECT
-    # ========================================
+                reply_markup=None
+            )
+
+        except Exception as e:
+
+            logging.error(
+                f"Caption edit xatosi: {e}"
+            )
+
+    # ========================================================
+    # OBUNA RAD
+    # ========================================================
 
     elif data.startswith("reject:"):
 
@@ -789,23 +1313,186 @@ async def receipt_action(
                 f"Reject xatosi: {e}"
             )
 
-        await query.edit_message_caption(
+        try:
 
-            caption=(
-                query.message.caption
-                + "\n\n"
-                "━━━━━━━━━━━━━━\n"
-                "❌ TO'LOV RAD ETILDI."
-            ),
+            await query.edit_message_caption(
 
-            reply_markup=None
+                caption=(
+                    query.message.caption
+                    + "\n\n"
+                    "━━━━━━━━━━━━━━\n"
+                    "❌ TO'LOV RAD ETILDI."
+                ),
+
+                reply_markup=None
+            )
+
+        except Exception as e:
+
+            logging.error(
+                f"Caption edit xatosi: {e}"
+            )
+
+    # ========================================================
+    # REFERRAL PULI TO'LANDI
+    # ========================================================
+
+    elif data.startswith("withdraw_paid:"):
+
+        user_id = data.split(":")[1]
+
+        if user_id not in users:
+
+            await query.edit_message_text(
+                "❌ Foydalanuvchi topilmadi."
+            )
+
+            return
+
+        user_data = users[user_id]
+
+        amount = user_data.get(
+            "balance",
+            0
         )
 
+        if amount < MIN_WITHDRAW:
 
-# ============================================
-# ADMIN OBUNA
-# /activate USER_ID
-# ============================================
+            user_data["withdrawal_pending"] = False
+
+            save_users()
+
+            await query.edit_message_text(
+                "❌ Balans minimum summadan kam."
+            )
+
+            return
+
+        # Balansni nol qilamiz
+        user_data["balance"] = 0
+
+        user_data[
+            "withdrawal_card"
+        ] = None
+
+        user_data[
+            "withdrawal_pending"
+        ] = False
+
+        save_users()
+
+        try:
+
+            await context.bot.send_message(
+
+                chat_id=int(user_id),
+
+                text=(
+
+                    "🎉 PULINGIZ TO'LANDI!\n\n"
+
+                    f"💰 To'langan summa: "
+                    f"{amount:,} so'm\n\n"
+
+                    "✅ To'lov tasdiqlandi.\n\n"
+
+                    "🤖 Aqilliyordam AI'dan "
+                    "foydalanishda davom etishingiz mumkin!"
+                ).replace(",", " ")
+            )
+
+        except Exception as e:
+
+            logging.error(
+                f"Withdraw paid xatosi: {e}"
+            )
+
+        try:
+
+            await query.edit_message_text(
+
+                query.message.text
+                + "\n\n"
+                "━━━━━━━━━━━━━━\n"
+                "✅ TO'LOV AMALGA OSHIRILDI"
+            )
+
+        except Exception as e:
+
+            logging.error(
+                f"Withdraw edit xatosi: {e}"
+            )
+
+    # ========================================================
+    # REFERRAL PULI RAD
+    # ========================================================
+
+    elif data.startswith("withdraw_reject:"):
+
+        user_id = data.split(":")[1]
+
+        if user_id not in users:
+
+            return
+
+        user_data = users[user_id]
+
+        user_data[
+            "withdrawal_card"
+        ] = None
+
+        user_data[
+            "withdrawal_pending"
+        ] = False
+
+        # Balans saqlanib qoladi
+        save_users()
+
+        try:
+
+            await context.bot.send_message(
+
+                chat_id=int(user_id),
+
+                text=(
+
+                    "❌ Pul chiqarish so'rovingiz "
+                    "rad etildi.\n\n"
+
+                    "💰 Balansingiz saqlanib qoldi.\n\n"
+
+                    f"👨‍💻 Admin: {ADMIN_USERNAME}\n"
+
+                    "Kerak bo'lsa qaytadan so'rov yuboring."
+                )
+            )
+
+        except Exception as e:
+
+            logging.error(
+                f"Withdraw reject xatosi: {e}"
+            )
+
+        try:
+
+            await query.edit_message_text(
+
+                query.message.text
+                + "\n\n"
+                "━━━━━━━━━━━━━━\n"
+                "❌ SO'ROV RAD ETILDI"
+            )
+
+        except Exception as e:
+
+            logging.error(
+                f"Withdraw reject edit xatosi: {e}"
+            )
+
+
+# ============================================================
+# ADMIN ACTIVATE
+# ============================================================
 
 async def activate(
     update,
@@ -833,15 +1520,11 @@ async def activate(
 
     if user_id not in users:
 
-        users[user_id] = {
-            "free_used": FREE_MESSAGES,
-            "subscription_until": None,
-            "username": None,
-            "first_name": None,
-            "last_name": None,
-            "referrals": [],
-            "referred_by": None
-        }
+        await update.message.reply_text(
+            "❌ Bu foydalanuvchi hali botga kirmagan."
+        )
+
+        return
 
     until = (
         datetime.now()
@@ -861,14 +1544,15 @@ async def activate(
         "✅ OBUNA FAOLLASHTIRILDI!\n\n"
 
         f"👤 User ID: {user_id}\n"
-        f"📅 {SUBSCRIPTION_DAYS} kunlik obuna berildi."
+        f"📅 {SUBSCRIPTION_DAYS} kunlik obuna berildi.\n"
+        f"⏰ Tugaydi: "
+        f"{until.strftime('%d.%m.%Y %H:%M')}"
     )
 
 
-# ============================================
+# ============================================================
 # ADMIN USERS
-# /users
-# ============================================
+# ============================================================
 
 async def show_users(
     update,
@@ -915,10 +1599,11 @@ async def show_users(
         if not full_name:
             full_name = "Ism yo'q"
 
-        if username:
-            username_text = f"@{username}"
-        else:
-            username_text = "username yo'q"
+        username_text = (
+            f"@{username}"
+            if username
+            else "username yo'q"
+        )
 
         free_used = data.get(
             "free_used",
@@ -930,6 +1615,11 @@ async def show_users(
                 "referrals",
                 []
             )
+        )
+
+        balance = data.get(
+            "balance",
+            0
         )
 
         subscription = data.get(
@@ -945,8 +1635,11 @@ async def show_users(
                 )
 
                 if datetime.now() < until:
+
                     status = "✅ Faol"
+
                 else:
+
                     status = "❌ Tugagan"
 
             except Exception:
@@ -964,8 +1657,9 @@ async def show_users(
             f"🔗 {username_text}\n"
             f"🆓 Bepul: {free_used}/{FREE_MESSAGES}\n"
             f"👥 Referral: {referrals} ta\n"
+            f"💰 Balans: {balance:,} so'm\n"
             f"💎 Obuna: {status}\n\n"
-        )
+        ).replace(",", " ")
 
         if len(text) > 3500:
 
@@ -982,9 +1676,9 @@ async def show_users(
         )
 
 
-# ============================================
+# ============================================================
 # AI MESSAGE
-# ============================================
+# ============================================================
 
 async def handle_message(
     update,
@@ -1003,9 +1697,9 @@ async def handle_message(
 
     user = users[user_id]
 
-    # ========================================
-    # OBUNA
-    # ========================================
+    # ========================================================
+    # OBUNA TEKSHIRISH
+    # ========================================================
 
     subscription_active = False
 
@@ -1022,15 +1716,16 @@ async def handle_message(
             )
 
             if datetime.now() < until:
+
                 subscription_active = True
 
         except Exception:
 
             subscription_active = False
 
-    # ========================================
+    # ========================================================
     # FREE LIMIT
-    # ========================================
+    # ========================================================
 
     if not subscription_active:
 
@@ -1044,21 +1739,21 @@ async def handle_message(
                 "🔒 Bepul savollaringiz tugadi.\n\n"
 
                 "💎 Davom ettirish uchun "
-                "7 kunlik obuna oling.\n\n"
+                f"{SUBSCRIPTION_DAYS} kunlik obuna oling.\n\n"
 
                 f"💰 Narx: {WEEKLY_PRICE}\n\n"
 
                 "👉 /buy\n\n"
 
-                "👥 Yoki do'stingizni taklif qilib "
-                "bepul savollar oling."
+                "👥 Yoki do'stlaringizni taklif qilib "
+                "pul yig'ing."
             )
 
             return
 
-    # ========================================
+    # ========================================================
     # CLAUDE
-    # ========================================
+    # ========================================================
 
     try:
 
@@ -1084,6 +1779,7 @@ async def handle_message(
             answer
         )
 
+        # Faqat bepul foydalanuvchining savolini hisoblaymiz
         if not subscription_active:
 
             user["free_used"] = (
@@ -1107,14 +1803,16 @@ async def handle_message(
 
         await update.message.reply_text(
 
-            "❌ Kechirasiz, xatolik yuz berdi.\n\n"
-            "Qayta urinib ko'ring."
+            "❌ Kechirasiz, AI bilan bog'lanishda "
+            "xatolik yuz berdi.\n\n"
+
+            "Birozdan keyin qayta urinib ko'ring."
         )
 
 
-# ============================================
+# ============================================================
 # MAIN
-# ============================================
+# ============================================================
 
 def main():
 
@@ -1126,7 +1824,10 @@ def main():
         .build()
     )
 
-    # START
+    # ========================================================
+    # COMMANDS
+    # ========================================================
+
     app.add_handler(
         CommandHandler(
             "start",
@@ -1134,7 +1835,6 @@ def main():
         )
     )
 
-    # BUY
     app.add_handler(
         CommandHandler(
             "buy",
@@ -1142,7 +1842,20 @@ def main():
         )
     )
 
-    # ACTIVATE
+    app.add_handler(
+        CommandHandler(
+            "balance",
+            balance_command
+        )
+    )
+
+    app.add_handler(
+        CommandHandler(
+            "withdraw",
+            withdraw_command
+        )
+    )
+
     app.add_handler(
         CommandHandler(
             "activate",
@@ -1150,7 +1863,6 @@ def main():
         )
     )
 
-    # USERS
     app.add_handler(
         CommandHandler(
             "users",
@@ -1158,7 +1870,10 @@ def main():
         )
     )
 
-    # PHOTO CHEK
+    # ========================================================
+    # RECEIPTS
+    # ========================================================
+
     app.add_handler(
         MessageHandler(
             filters.PHOTO,
@@ -1166,7 +1881,6 @@ def main():
         )
     )
 
-    # PDF / FILE CHEK
     app.add_handler(
         MessageHandler(
             filters.Document.ALL,
@@ -1174,23 +1888,45 @@ def main():
         )
     )
 
-    # MENU
+    # ========================================================
+    # BUTTONS
+    # ========================================================
+
     app.add_handler(
         CallbackQueryHandler(
             button_handler,
-            pattern="^(buy_menu|referral|advertisement)$"
+            pattern=(
+                "^(buy_menu|referral|balance|"
+                "withdraw|advertisement)$"
+            )
         )
     )
 
-    # ADMIN APPROVE / REJECT
     app.add_handler(
         CallbackQueryHandler(
             receipt_action,
-            pattern="^(approve|reject):"
+            pattern=(
+                "^(approve|reject|"
+                "withdraw_paid|withdraw_reject):"
+            )
         )
     )
 
+    # ========================================================
+    # KARTA RAQAMI
+    # ========================================================
+
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_withdraw_card
+        )
+    )
+
+    # ========================================================
     # AI
+    # ========================================================
+
     app.add_handler(
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
@@ -1204,6 +1940,10 @@ def main():
 
     app.run_polling()
 
+
+# ============================================================
+# START PROGRAM
+# ============================================================
 
 if __name__ == "__main__":
     main()
