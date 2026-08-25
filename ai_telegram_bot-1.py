@@ -440,7 +440,7 @@ async def start(update, context):
         f"💸 Minimal yechish: {MIN_WITHDRAW:,} so'm\n\n"
 
         "👇 Menyudan foydalaning:"
-    ).replace(",", " ")
+    
 
     # Tugmalarni alohida yuboramiz
     await update.message.reply_text(
