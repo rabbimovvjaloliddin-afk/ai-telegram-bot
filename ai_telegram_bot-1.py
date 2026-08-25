@@ -4,11 +4,7 @@ import json
 import logging
 from datetime import datetime, timedelta
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -41,94 +37,142 @@ WEEKLY_PRICE = os.environ.get(
 )
 
 FREE_MESSAGES = 3
+REFERRAL_BONUS = 2
 SUBSCRIPTION_DAYS = 7
-
-# Claude'ga markdown belgilaridan foydalanmaslikni aytamiz,
-# chunki Telegram'ga parse_mode'siz yuborilganda ** va # kabi
-# belgilar formatlanmasdan, xom holida ko'rinib qoladi.
-SYSTEM_PROMPT = """
-Siz do'stona va foydali AI yordamchisiz.
-Foydalanuvchilarga o'zbek tilida qisqa, aniq va foydali javob bering.
-
-MUHIM QOIDA: Javobingizda hech qanday Markdown belgisi ishlatmang.
-Ya'ni **qalin matn**, *kursiv*, # sarlavha, ``` kod bloki kabi
-belgilardan umuman foydalanmang. Faqat oddiy matn, emoji va
-yangi qatorlardan (enter) foydalaning. Agar biror narsani
-ta'kidlashingiz kerak bo'lsa, emoji yoki katta harflar bilan
-ajrating, yulduzcha (*) bilan emas.
-"""
-
-
-# ============================================
-# LOGGING / API
-# ============================================
-
-logging.basicConfig(level=logging.INFO)
-
-client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 DATA_FILE = "users.json"
 
 
 # ============================================
-# YORDAMCHI: MARKDOWN TOZALASH
+# AI
 # ============================================
 
-def clean_markdown(text: str) -> str:
-    """
-    Claude javobida tasodifan Markdown belgilari qolib
-    ketgan bo'lsa ham (**, *, #, ```), ularni olib tashlaydi.
-    Bu qo'shimcha xavfsizlik qatlami — SYSTEM_PROMPT asosiy
-    himoya, bu esa uning "orqa fon"i.
-    """
+SYSTEM_PROMPT = """
+Siz Aqilliyordam AI nomli foydali AI yordamchisiz.
+
+Foydalanuvchiga o'zbek tilida aniq, tushunarli va foydali javob bering.
+
+Siz quyidagilarda yordam bera olasiz:
+- Matn yozish
+- Insho yozish
+- Telegram bot yaratish
+- Test tuzish
+- Dars va uy vazifalari
+- Tarjima
+- G'oya topish
+- Kod yozish va tushuntirish
+- Turli savollarga javob berish
+
+Javoblarda Markdown belgilaridan foydalanmang.
+**qalin**, *kursiv*, # sarlavha va ```kod``` kabi
+belgilarni ishlatmang.
+
+Oddiy matn, emoji va yangi qatorlardan foydalaning.
+"""
+
+
+logging.basicConfig(level=logging.INFO)
+
+client = Anthropic(
+    api_key=ANTHROPIC_API_KEY
+)
+
+
+# ============================================
+# MARKDOWN TOZALASH
+# ============================================
+
+def clean_markdown(text):
+
     if not text:
         return text
 
-    # ```kod bloklari``` -> ichidagi matnni qoldirib, belgini olib tashlaymiz
-    text = re.sub(r"```(?:\w+\n)?(.*?)```", r"\1", text, flags=re.DOTALL)
+    text = re.sub(
+        r"```(?:\w+\n)?(.*?)```",
+        r"\1",
+        text,
+        flags=re.DOTALL
+    )
 
-    # **qalin** yoki __qalin__ -> qalin
-    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
-    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(
+        r"\*\*(.+?)\*\*",
+        r"\1",
+        text
+    )
 
-    # *kursiv* yoki _kursiv_ -> kursiv
-    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"\1", text)
-    text = re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"\1", text)
+    text = re.sub(
+        r"__(.+?)__",
+        r"\1",
+        text
+    )
 
-    # # Sarlavha -> Sarlavha
-    text = re.sub(r"^#{1,6}\s*", "", text, flags=re.MULTILINE)
+    text = re.sub(
+        r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)",
+        r"\1",
+        text
+    )
 
-    # `inline code` -> inline code
-    text = re.sub(r"`(.+?)`", r"\1", text)
+    text = re.sub(
+        r"^#{1,6}\s*",
+        "",
+        text,
+        flags=re.MULTILINE
+    )
+
+    text = re.sub(
+        r"`(.+?)`",
+        r"\1",
+        text
+    )
 
     return text.strip()
 
 
 # ============================================
-# MA'LUMOTLARNI SAQLASH
+# DATABASE
 # ============================================
 
 def load_users():
+
     if not os.path.exists(DATA_FILE):
         return {}
 
     try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
+
+        with open(
+            DATA_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
             return json.load(f)
+
     except Exception:
+
         return {}
 
 
-def save_users(users):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
+def save_users():
+
+    with open(
+        DATA_FILE,
+        "w",
+        encoding="utf-8"
+    ) as f:
+
+        json.dump(
+            users,
+            f,
+            ensure_ascii=False,
+            indent=2
+        )
 
 
 users = load_users()
 
 
 # ============================================
-# FOYDALANUVCHI
+# USER SAQLASH
 # ============================================
 
 def save_user_info(user):
@@ -136,36 +180,158 @@ def save_user_info(user):
     user_id = str(user.id)
 
     if user_id not in users:
+
         users[user_id] = {
             "free_used": 0,
             "subscription_until": None,
             "username": user.username,
             "first_name": user.first_name,
-            "last_name": user.last_name
+            "last_name": user.last_name,
+            "referrals": [],
+            "referred_by": None
         }
 
     else:
+
         users[user_id]["username"] = user.username
         users[user_id]["first_name"] = user.first_name
         users[user_id]["last_name"] = user.last_name
 
-    save_users(users)
+        if "referrals" not in users[user_id]:
+            users[user_id]["referrals"] = []
+
+        if "referred_by" not in users[user_id]:
+            users[user_id]["referred_by"] = None
+
+    save_users()
 
 
 # ============================================
 # START
 # ============================================
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update, context):
 
-    save_user_info(update.effective_user)
+    user = update.effective_user
+    user_id = str(user.id)
+
+    new_user = user_id not in users
+
+    save_user_info(user)
+
+    # ========================================
+    # REFERRAL
+    # ========================================
+
+    if new_user and context.args:
+
+        referral_id = context.args[0]
+
+        if referral_id.startswith("ref_"):
+            referral_id = referral_id[4:]
+
+        if (
+            referral_id != user_id
+            and referral_id in users
+        ):
+
+            ref_user = users[referral_id]
+
+            if "referrals" not in ref_user:
+                ref_user["referrals"] = []
+
+            if user_id not in ref_user["referrals"]:
+
+                ref_user["referrals"].append(
+                    user_id
+                )
+
+                # +2 bepul savol
+                ref_user["free_used"] = max(
+                    0,
+                    ref_user.get("free_used", 0)
+                    - REFERRAL_BONUS
+                )
+
+                users[user_id]["referred_by"] = (
+                    referral_id
+                )
+
+                save_users()
+
+                try:
+
+                    await context.bot.send_message(
+                        chat_id=int(referral_id),
+                        text=(
+                            "🎉 YANGI DO'STINGIZ QO'SHILDI!\n\n"
+                            f"🎁 Sizga +{REFERRAL_BONUS} ta "
+                            "bepul savol berildi.\n\n"
+                            f"👥 Jami takliflaringiz: "
+                            f"{len(ref_user['referrals'])} ta"
+                        )
+                    )
+
+                except Exception as e:
+
+                    logging.error(
+                        f"Referral xatosi: {e}"
+                    )
+
+    # ========================================
+    # MENU
+    # ========================================
+
+    keyboard = InlineKeyboardMarkup([
+
+        [
+            InlineKeyboardButton(
+                "💎 OBUNA OLISH",
+                callback_data="buy_menu"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "👥 DO'ST TAKLIF QILISH",
+                callback_data="referral"
+            )
+        ],
+
+        [
+            InlineKeyboardButton(
+                "📢 REKLAMA",
+                callback_data="advertisement"
+            )
+        ]
+
+    ])
 
     await update.message.reply_text(
-        "👋 Salom!\n\n"
-        "🤖 Men Aqilliyordam AI botiman.\n\n"
-        "🆓 Sizga 3 ta savolga bepul javob beriladi.\n"
-        "💎 Keyingi savollar uchun 7 kunlik obuna kerak.\n\n"
-        "📌 Obuna olish: /buy"
+
+        "👋 Salom, "
+        + (user.first_name or "do'stim")
+        + "!\n\n"
+
+        "🤖 Aqilliyordam AI botiga xush kelibsiz!\n\n"
+
+        "🧠 Men sizga ko'plab vazifalarda yordam beraman.\n\n"
+
+        "📝 Matn yozish\n"
+        "📚 Insho yozish\n"
+        "🤖 Telegram bot yaratish\n"
+        "🧠 Test tuzish\n"
+        "🌍 Tarjima\n"
+        "📖 Dars va uy vazifalari\n"
+        "💡 G'oya topish\n"
+        "💻 Kod yozish\n\n"
+
+        f"🆓 Sizda {FREE_MESSAGES} ta bepul savol bor.\n"
+        f"💎 Keyin {SUBSCRIPTION_DAYS} kunlik obuna kerak.\n\n"
+
+        "👇 Quyidagi menyudan foydalaning:",
+
+        reply_markup=keyboard
     )
 
 
@@ -173,33 +339,155 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # BUY
 # ============================================
 
-async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def buy(update, context):
 
     await update.message.reply_text(
+
         "💎 AI YORDAM OBUNASI\n\n"
+
         f"📅 Muddat: {SUBSCRIPTION_DAYS} kun\n"
         f"💰 Narx: {WEEKLY_PRICE}\n\n"
-        "💳 To'lov uchun karta:\n"
+
+        "💳 TO'LOV UCHUN KARTA:\n"
         f"{CARD_NUMBER}\n\n"
-        "1️⃣ Yuqoridagi kartaga to'lov qiling.\n"
-        "2️⃣ To'lov chekini shu botga yuboring.\n"
-        "3️⃣ Admin tekshiradi va obunangizni faollashtiradi.\n\n"
-        "⚠️ Chekni aynan shu botga yuboring."
+
+        "1️⃣ Kartaga to'lov qiling.\n"
+        "2️⃣ Chekni shu botga yuboring.\n"
+        "3️⃣ Admin to'lovni tekshiradi.\n"
+        "4️⃣ Tasdiqlangach obuna faollashadi.\n\n"
+
+        "📸 Chekni rasm yoki PDF qilib yuboring."
     )
 
 
 # ============================================
-# CHEKNI ADMINDA TASDIQLASH
+# BUTTONLAR
+# ============================================
+
+async def button_handler(update, context):
+
+    query = update.callback_query
+
+    await query.answer()
+
+    user_id = str(query.from_user.id)
+
+    # ========================================
+    # OBUNA
+    # ========================================
+
+    if query.data == "buy_menu":
+
+        await query.message.reply_text(
+
+            "💎 AI YORDAM OBUNASI\n\n"
+
+            f"📅 Muddat: {SUBSCRIPTION_DAYS} kun\n"
+            f"💰 Narx: {WEEKLY_PRICE}\n\n"
+
+            "💳 TO'LOV UCHUN KARTA:\n"
+            f"{CARD_NUMBER}\n\n"
+
+            "1️⃣ Kartaga to'lov qiling.\n"
+            "2️⃣ Chekni shu botga yuboring.\n"
+            "3️⃣ Admin tekshiradi.\n"
+            "4️⃣ Tasdiqlangach obuna faollashadi.\n\n"
+
+            "📸 Chekni rasm yoki PDF qilib yuboring."
+        )
+
+    # ========================================
+    # REFERRAL
+    # ========================================
+
+    elif query.data == "referral":
+
+        bot_username = context.bot.username
+
+        referral_link = (
+            f"https://t.me/{bot_username}"
+            f"?start=ref_{user_id}"
+        )
+
+        count = len(
+            users.get(
+                user_id,
+                {}
+            ).get(
+                "referrals",
+                []
+            )
+        )
+
+        await query.message.reply_text(
+
+            "👥 DO'STLARNI TAKLIF QILING\n\n"
+
+            f"Har bir yangi do'stingiz uchun "
+            f"+{REFERRAL_BONUS} ta bepul savol olasiz! 🎁\n\n"
+
+            "🔗 SIZNING TAKLIF HAVOLANGIZ:\n\n"
+
+            f"{referral_link}\n\n"
+
+            f"👥 Taklif qilganlaringiz: "
+            f"{count} ta\n\n"
+
+            "📢 Havolani do'stlaringizga yuboring "
+            "va bepul savollar oling!"
+        )
+
+    # ========================================
+    # REKLAMA
+    # ========================================
+
+    elif query.data == "advertisement":
+
+        bot_username = context.bot.username
+
+        advertisement = (
+
+            "📢 Aqilliyordam AI 🤖\n\n"
+
+            "Savolingiz bormi? AI sizga yordam beradi! 🚀\n\n"
+
+            "📝 Matn yozish\n"
+            "📚 Insho yozish\n"
+            "🤖 Telegram bot yaratish\n"
+            "🧠 Test tuzish\n"
+            "🌍 Tarjima qilish\n"
+            "📖 Dars va uy vazifalarida yordam\n"
+            "💡 G'oya topish\n"
+            "💻 Kod yozish\n"
+            "❓ Turli savollarga javob\n\n"
+
+            "🎁 Yangi foydalanuvchilarga "
+            "3 ta savol BEPUL!\n\n"
+
+            "⚡ Tez va qulay foydalaning!\n\n"
+
+            "👇 Hozir sinab ko'ring:\n"
+            f"https://t.me/{bot_username}"
+        )
+
+        await query.message.reply_text(
+            advertisement
+        )
+
+
+# ============================================
+# CHEKNI ADMINDA KO'RSATISH
 # ============================================
 
 async def send_receipt_to_admin(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
-    file_id: str,
-    is_document: bool = False
+    update,
+    context,
+    file_id,
+    is_document=False
 ):
 
     user = update.effective_user
+
     user_id = user.id
 
     username = (
@@ -209,42 +497,58 @@ async def send_receipt_to_admin(
     )
 
     name = " ".join(
-        x for x in [user.first_name, user.last_name] if x
+        x for x in [
+            user.first_name,
+            user.last_name
+        ]
+        if x
     )
 
     if not name:
         name = "Ism yo'q"
 
     caption = (
+
         "💳 YANGI TO'LOV CHEKI\n\n"
+
         f"👤 Ism: {name}\n"
         f"🔗 Username: {username}\n"
         f"🆔 User ID: {user_id}\n\n"
-        f"💰 Narx: {WEEKLY_PRICE}\n"
-        "⏳ Tasdiqlashni kutmoqda..."
+
+        f"💰 Narx: {WEEKLY_PRICE}\n\n"
+
+        "⏳ TASDIQLASHNI KUTMOQDA..."
     )
 
     keyboard = InlineKeyboardMarkup([
+
         [
+
             InlineKeyboardButton(
                 "✅ TASDIQLASH",
                 callback_data=f"approve:{user_id}"
             ),
+
             InlineKeyboardButton(
                 "❌ RAD ETISH",
                 callback_data=f"reject:{user_id}"
             )
+
         ]
+
     ])
 
     if is_document:
+
         await context.bot.send_document(
             chat_id=ADMIN_ID,
             document=file_id,
             caption=caption,
             reply_markup=keyboard
         )
+
     else:
+
         await context.bot.send_photo(
             chat_id=ADMIN_ID,
             photo=file_id,
@@ -253,9 +557,12 @@ async def send_receipt_to_admin(
         )
 
     await update.message.reply_text(
+
         "✅ Chekingiz adminga yuborildi.\n\n"
-        "⏳ To'lov tekshirilmoqda.\n"
-        "Tasdiqlangandan keyin 7 kunlik obuna avtomatik faollashadi."
+
+        "⏳ To'lov tekshirilmoqda.\n\n"
+
+        "Tasdiqlangandan keyin obunangiz faollashadi."
     )
 
 
@@ -264,11 +571,13 @@ async def send_receipt_to_admin(
 # ============================================
 
 async def handle_receipt_photo(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    update,
+    context
 ):
 
-    save_user_info(update.effective_user)
+    save_user_info(
+        update.effective_user
+    )
 
     photo = update.message.photo[-1]
 
@@ -276,20 +585,22 @@ async def handle_receipt_photo(
         update,
         context,
         photo.file_id,
-        is_document=False
+        False
     )
 
 
 # ============================================
-# PDF / FILE CHEK
+# PDF CHEK
 # ============================================
 
 async def handle_receipt_document(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    update,
+    context
 ):
 
-    save_user_info(update.effective_user)
+    save_user_info(
+        update.effective_user
+    )
 
     document = update.message.document
 
@@ -297,35 +608,36 @@ async def handle_receipt_document(
         update,
         context,
         document.file_id,
-        is_document=True
+        True
     )
 
 
 # ============================================
-# ADMIN TUGMALARINI BOSISH
+# ADMIN TASDIQLASH
 # ============================================
 
 async def receipt_action(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    update,
+    context
 ):
 
     query = update.callback_query
 
-    await query.answer()
-
-    # Faqat admin
     if query.from_user.id != ADMIN_ID:
+
         await query.answer(
             "❌ Siz admin emassiz!",
             show_alert=True
         )
+
         return
+
+    await query.answer()
 
     data = query.data
 
     # ========================================
-    # TASDIQLASH
+    # APPROVE
     # ========================================
 
     if data.startswith("approve:"):
@@ -333,16 +645,17 @@ async def receipt_action(
         user_id = data.split(":")[1]
 
         if user_id not in users:
+
             users[user_id] = {
                 "free_used": FREE_MESSAGES,
                 "subscription_until": None,
                 "username": None,
                 "first_name": None,
-                "last_name": None
+                "last_name": None,
+                "referrals": [],
+                "referred_by": None
             }
 
-        # Agar eski obuna hali tugamagan bo'lsa,
-        # yangi 7 kunni eski muddatga qo'shamiz
         old_until = users[user_id].get(
             "subscription_until"
         )
@@ -350,69 +663,102 @@ async def receipt_action(
         now = datetime.now()
 
         if old_until:
+
             try:
-                old_date = datetime.fromisoformat(old_until)
+
+                old_date = datetime.fromisoformat(
+                    old_until
+                )
 
                 if old_date > now:
-                    until = old_date + timedelta(
-                        days=SUBSCRIPTION_DAYS
+
+                    until = (
+                        old_date
+                        + timedelta(
+                            days=SUBSCRIPTION_DAYS
+                        )
                     )
+
                 else:
-                    until = now + timedelta(
-                        days=SUBSCRIPTION_DAYS
+
+                    until = (
+                        now
+                        + timedelta(
+                            days=SUBSCRIPTION_DAYS
+                        )
                     )
 
             except Exception:
-                until = now + timedelta(
-                    days=SUBSCRIPTION_DAYS
+
+                until = (
+                    now
+                    + timedelta(
+                        days=SUBSCRIPTION_DAYS
+                    )
                 )
 
         else:
-            until = now + timedelta(
-                days=SUBSCRIPTION_DAYS
-            )
 
-        users[user_id]["subscription_until"] = (
-            until.isoformat()
-        )
-
-        # Bepul limitni ham tugatib qo'yamiz
-        users[user_id]["free_used"] = FREE_MESSAGES
-
-        save_users(users)
-
-        # Foydalanuvchiga xabar
-        try:
-            await context.bot.send_message(
-                chat_id=int(user_id),
-                text=(
-                    "🎉 TO'LOV TASDIQLANDI!\n\n"
-                    "✅ AI Yordam obunangiz faollashtirildi.\n\n"
-                    f"💎 Muddat: {SUBSCRIPTION_DAYS} kun\n"
-                    f"📅 Tugash sanasi: "
-                    f"{until.strftime('%d.%m.%Y %H:%M')}\n\n"
-                    "🤖 Endi AI yordamchidan foydalanishingiz mumkin!"
+            until = (
+                now
+                + timedelta(
+                    days=SUBSCRIPTION_DAYS
                 )
             )
-        except Exception as e:
-            logging.error(
-                f"Foydalanuvchiga xabar yuborishda xato: {e}"
+
+        users[user_id][
+            "subscription_until"
+        ] = until.isoformat()
+
+        users[user_id][
+            "free_used"
+        ] = FREE_MESSAGES
+
+        save_users()
+
+        try:
+
+            await context.bot.send_message(
+
+                chat_id=int(user_id),
+
+                text=(
+
+                    "🎉 TO'LOV TASDIQLANDI!\n\n"
+
+                    "✅ Obunangiz faollashtirildi.\n\n"
+
+                    f"💎 Muddat: {SUBSCRIPTION_DAYS} kun\n"
+
+                    f"📅 Tugash sanasi: "
+                    f"{until.strftime('%d.%m.%Y %H:%M')}\n\n"
+
+                    "🤖 Endi Aqilliyordam AI'dan "
+                    "foydalanishingiz mumkin!"
+                )
             )
 
-        # Admin xabarini yangilash
+        except Exception as e:
+
+            logging.error(
+                f"User xabar xatosi: {e}"
+            )
+
         await query.edit_message_caption(
+
             caption=(
-                query.message.caption +
-                "\n\n"
+                query.message.caption
+                + "\n\n"
                 "━━━━━━━━━━━━━━\n"
                 "✅ TO'LOV TASDIQLANDI\n"
                 f"📅 {SUBSCRIPTION_DAYS} kunlik obuna berildi."
             ),
+
             reply_markup=None
         )
 
     # ========================================
-    # RAD ETISH
+    # REJECT
     # ========================================
 
     elif data.startswith("reject:"):
@@ -420,132 +766,170 @@ async def receipt_action(
         user_id = data.split(":")[1]
 
         try:
+
             await context.bot.send_message(
+
                 chat_id=int(user_id),
+
                 text=(
-                    "❌ To'lov chekingiz tasdiqlanmadi.\n\n"
-                    "Iltimos, to'lov chekini tekshirib, "
-                    "qaytadan yuboring yoki admin bilan bog'laning.\n\n"
+
+                    "❌ To'lov chekingiz "
+                    "tasdiqlanmadi.\n\n"
+
+                    "Iltimos, chekni tekshirib "
+                    "qaytadan yuboring.\n\n"
+
                     f"👨‍💻 Admin: {ADMIN_USERNAME}"
                 )
             )
+
         except Exception as e:
+
             logging.error(
-                f"Rad javobini yuborishda xato: {e}"
+                f"Reject xatosi: {e}"
             )
 
         await query.edit_message_caption(
+
             caption=(
-                query.message.caption +
-                "\n\n"
+                query.message.caption
+                + "\n\n"
                 "━━━━━━━━━━━━━━\n"
                 "❌ TO'LOV RAD ETILDI."
             ),
+
             reply_markup=None
         )
 
 
 # ============================================
-# ADMIN OBUNA BERISH
+# ADMIN OBUNA
 # /activate USER_ID
 # ============================================
 
 async def activate(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    update,
+    context
 ):
 
     if update.effective_user.id != ADMIN_ID:
+
         await update.message.reply_text(
-            "❌ Sizda bu buyruqdan foydalanish huquqi yo'q."
+            "❌ Bu buyruq faqat admin uchun."
         )
+
         return
 
     if len(context.args) < 1:
+
         await update.message.reply_text(
             "❌ Foydalanish:\n"
             "/activate USER_ID"
         )
+
         return
 
     user_id = context.args[0]
 
     if user_id not in users:
+
         users[user_id] = {
             "free_used": FREE_MESSAGES,
             "subscription_until": None,
             "username": None,
             "first_name": None,
-            "last_name": None
+            "last_name": None,
+            "referrals": [],
+            "referred_by": None
         }
 
-    until = datetime.now() + timedelta(
-        days=SUBSCRIPTION_DAYS
+    until = (
+        datetime.now()
+        + timedelta(
+            days=SUBSCRIPTION_DAYS
+        )
     )
 
-    users[user_id]["subscription_until"] = (
-        until.isoformat()
-    )
+    users[user_id][
+        "subscription_until"
+    ] = until.isoformat()
 
-    save_users(users)
+    save_users()
 
     await update.message.reply_text(
-        "✅ Obuna faollashtirildi!\n\n"
+
+        "✅ OBUNA FAOLLASHTIRILDI!\n\n"
+
         f"👤 User ID: {user_id}\n"
         f"📅 {SUBSCRIPTION_DAYS} kunlik obuna berildi."
     )
 
 
 # ============================================
-# ADMIN FOYDALANUVCHILAR
+# ADMIN USERS
 # /users
 # ============================================
 
 async def show_users(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    update,
+    context
 ):
 
     if update.effective_user.id != ADMIN_ID:
+
         await update.message.reply_text(
             "❌ Bu buyruq faqat admin uchun."
         )
+
         return
 
     if not users:
+
         await update.message.reply_text(
-            "📭 Hozircha foydalanuvchilar yo'q."
+            "📭 Foydalanuvchilar yo'q."
         )
+
         return
 
-    total = len(users)
-
     text = (
-        f"👥 JAMI FOYDALANUVCHILAR: {total}\n\n"
+        f"👥 JAMI: {len(users)} TA FOYDALANUVCHI\n\n"
     )
 
     for number, (user_id, data) in enumerate(
-        users.items(), 1
+        users.items(),
+        1
     ):
 
-        username = data.get("username")
-        first_name = data.get("first_name")
-        last_name = data.get("last_name")
+        username = data.get(
+            "username"
+        )
+
+        full_name = " ".join(
+            x for x in [
+                data.get("first_name"),
+                data.get("last_name")
+            ]
+            if x
+        )
+
+        if not full_name:
+            full_name = "Ism yo'q"
 
         if username:
             username_text = f"@{username}"
         else:
             username_text = "username yo'q"
 
-        full_name = " ".join(
-            x for x in [first_name, last_name] if x
+        free_used = data.get(
+            "free_used",
+            0
         )
 
-        if not full_name:
-            full_name = "Ism yo'q"
-
-        free_used = data.get(
-            "free_used", 0
+        referrals = len(
+            data.get(
+                "referrals",
+                []
+            )
         )
 
         subscription = data.get(
@@ -553,236 +937,29 @@ async def show_users(
         )
 
         if subscription:
+
             try:
+
                 until = datetime.fromisoformat(
                     subscription
                 )
 
                 if datetime.now() < until:
-                    subscription_text = (
-                        "✅ Faol"
-                    )
+                    status = "✅ Faol"
                 else:
-                    subscription_text = (
-                        "❌ Tugagan"
-                    )
+                    status = "❌ Tugagan"
 
             except Exception:
-                subscription_text = (
-                    "❌ Noma'lum"
-                )
+
+                status = "❌ Noma'lum"
+
         else:
-            subscription_text = (
-                "❌ Obuna yo'q"
-            )
+
+            status = "❌ Obuna yo'q"
 
         text += (
+
             f"{number}. 👤 {full_name}\n"
-            f"   🆔 ID: {user_id}\n"
-            f"   🔗 {username_text}\n"
-            f"   🆓 Bepul: "
-            f"{free_used}/{FREE_MESSAGES}\n"
-            f"   💎 Obuna: "
-            f"{subscription_text}\n\n"
-        )
-
-        if len(text) > 3500:
-
-            await update.message.reply_text(
-                text
-            )
-
-            text = "👥 DAVOMI:\n\n"
-
-    if text.strip():
-        await update.message.reply_text(text)
-
-
-# ============================================
-# AI MESSAGE
-# ============================================
-
-async def handle_message(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    user_id = str(
-        update.effective_user.id
-    )
-
-    user_text = update.message.text
-
-    save_user_info(
-        update.effective_user
-    )
-
-    user = users[user_id]
-
-    # ========================================
-    # OBUNANI TEKSHIRISH
-    # ========================================
-
-    subscription_active = False
-
-    if user.get("subscription_until"):
-
-        try:
-
-            until = datetime.fromisoformat(
-                user["subscription_until"]
-            )
-
-            if datetime.now() < until:
-                subscription_active = True
-
-        except Exception:
-            subscription_active = False
-
-    # ========================================
-    # BEPUL LIMIT
-    # ========================================
-
-    if not subscription_active:
-
-        if user["free_used"] >= FREE_MESSAGES:
-
-            save_users(users)
-
-            await update.message.reply_text(
-                "🔒 Bepul savollaringiz tugadi.\n\n"
-                "🤖 Botdan foydalanishni davom "
-                "ettirish uchun 7 kunlik obuna oling.\n\n"
-                f"💰 Narx: {WEEKLY_PRICE}\n"
-                "💳 To'lov: /buy"
-            )
-
-            return
-
-    # ========================================
-    # CLAUDE API
-    # ========================================
-
-    try:
-
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1000,
-            system=SYSTEM_PROMPT,
-            messages=[
-                {
-                    "role": "user",
-                    "content": user_text
-                }
-            ]
-        )
-
-        answer = response.content[0].text
-
-        # Qo'shimcha xavfsizlik: Claude tasodifan Markdown
-        # belgisi qoldirib yuborsa ham, tozalab yuboramiz.
-        answer = clean_markdown(answer)
-
-        if not subscription_active:
-            user["free_used"] += 1
-
-        save_users(users)
-
-        await update.message.reply_text(
-            answer
-        )
-
-    except Exception as e:
-
-        logging.error(
-            f"Xatolik: {e}"
-        )
-
-        await update.message.reply_text(
-            "❌ Kechirasiz, xatolik yuz berdi. "
-            "Qayta urinib ko'ring."
-        )
-
-
-# ============================================
-# MAIN
-# ============================================
-
-def main():
-
-    app = (
-        Application.builder()
-        .token(TELEGRAM_BOT_TOKEN)
-        .build()
-    )
-
-    # START
-    app.add_handler(
-        CommandHandler(
-            "start",
-            start
-        )
-    )
-
-    # BUY
-    app.add_handler(
-        CommandHandler(
-            "buy",
-            buy
-        )
-    )
-
-    # ADMIN ACTIVATE
-    app.add_handler(
-        CommandHandler(
-            "activate",
-            activate
-        )
-    )
-
-    # ADMIN USERS
-    app.add_handler(
-        CommandHandler(
-            "users",
-            show_users
-        )
-    )
-
-    # CHEK - RASM
-    app.add_handler(
-        MessageHandler(
-            filters.PHOTO,
-            handle_receipt_photo
-        )
-    )
-
-    # CHEK - PDF / FILE
-    app.add_handler(
-        MessageHandler(
-            filters.Document.ALL,
-            handle_receipt_document
-        )
-    )
-
-    # ADMIN TASDIQLASH / RAD ETISH
-    app.add_handler(
-        CallbackQueryHandler(
-            receipt_action
-        )
-    )
-
-    # AI TEXT
-    app.add_handler(
-        MessageHandler(
-            filters.TEXT & ~filters.COMMAND,
-            handle_message
-        )
-    )
-
-    print("Bot ishga tushdi...")
-
-    app.run_polling()
-
-
-if __name__ == "__main__":
-    main()
+            f"🆔 {user_id}\n"
+            f"🔗 {username_text}\n"
+            f"?
