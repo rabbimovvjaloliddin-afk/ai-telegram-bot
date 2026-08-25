@@ -962,4 +962,248 @@ async def show_users(
             f"{number}. 👤 {full_name}\n"
             f"🆔 {user_id}\n"
             f"🔗 {username_text}\n"
-            f"?
+            f"🆓 Bepul: {free_used}/{FREE_MESSAGES}\n"
+            f"👥 Referral: {referrals} ta\n"
+            f"💎 Obuna: {status}\n\n"
+        )
+
+        if len(text) > 3500:
+
+            await update.message.reply_text(
+                text
+            )
+
+            text = "👥 DAVOMI:\n\n"
+
+    if text.strip():
+
+        await update.message.reply_text(
+            text
+        )
+
+
+# ============================================
+# AI MESSAGE
+# ============================================
+
+async def handle_message(
+    update,
+    context
+):
+
+    user_id = str(
+        update.effective_user.id
+    )
+
+    user_text = update.message.text
+
+    save_user_info(
+        update.effective_user
+    )
+
+    user = users[user_id]
+
+    # ========================================
+    # OBUNA
+    # ========================================
+
+    subscription_active = False
+
+    subscription_until = user.get(
+        "subscription_until"
+    )
+
+    if subscription_until:
+
+        try:
+
+            until = datetime.fromisoformat(
+                subscription_until
+            )
+
+            if datetime.now() < until:
+                subscription_active = True
+
+        except Exception:
+
+            subscription_active = False
+
+    # ========================================
+    # FREE LIMIT
+    # ========================================
+
+    if not subscription_active:
+
+        if user.get(
+            "free_used",
+            0
+        ) >= FREE_MESSAGES:
+
+            await update.message.reply_text(
+
+                "🔒 Bepul savollaringiz tugadi.\n\n"
+
+                "💎 Davom ettirish uchun "
+                "7 kunlik obuna oling.\n\n"
+
+                f"💰 Narx: {WEEKLY_PRICE}\n\n"
+
+                "👉 /buy\n\n"
+
+                "👥 Yoki do'stingizni taklif qilib "
+                "bepul savollar oling."
+            )
+
+            return
+
+    # ========================================
+    # CLAUDE
+    # ========================================
+
+    try:
+
+        response = client.messages.create(
+
+            model="claude-haiku-4-5-20251001",
+
+            max_tokens=1000,
+
+            system=SYSTEM_PROMPT,
+
+            messages=[
+                {
+                    "role": "user",
+                    "content": user_text
+                }
+            ]
+        )
+
+        answer = response.content[0].text
+
+        answer = clean_markdown(
+            answer
+        )
+
+        if not subscription_active:
+
+            user["free_used"] = (
+                user.get(
+                    "free_used",
+                    0
+                ) + 1
+            )
+
+        save_users()
+
+        await update.message.reply_text(
+            answer
+        )
+
+    except Exception as e:
+
+        logging.error(
+            f"Claude xatosi: {e}"
+        )
+
+        await update.message.reply_text(
+
+            "❌ Kechirasiz, xatolik yuz berdi.\n\n"
+            "Qayta urinib ko'ring."
+        )
+
+
+# ============================================
+# MAIN
+# ============================================
+
+def main():
+
+    app = (
+        Application.builder()
+        .token(
+            TELEGRAM_BOT_TOKEN
+        )
+        .build()
+    )
+
+    # START
+    app.add_handler(
+        CommandHandler(
+            "start",
+            start
+        )
+    )
+
+    # BUY
+    app.add_handler(
+        CommandHandler(
+            "buy",
+            buy
+        )
+    )
+
+    # ACTIVATE
+    app.add_handler(
+        CommandHandler(
+            "activate",
+            activate
+        )
+    )
+
+    # USERS
+    app.add_handler(
+        CommandHandler(
+            "users",
+            show_users
+        )
+    )
+
+    # PHOTO CHEK
+    app.add_handler(
+        MessageHandler(
+            filters.PHOTO,
+            handle_receipt_photo
+        )
+    )
+
+    # PDF / FILE CHEK
+    app.add_handler(
+        MessageHandler(
+            filters.Document.ALL,
+            handle_receipt_document
+        )
+    )
+
+    # MENU
+    app.add_handler(
+        CallbackQueryHandler(
+            button_handler,
+            pattern="^(buy_menu|referral|advertisement)$"
+        )
+    )
+
+    # ADMIN APPROVE / REJECT
+    app.add_handler(
+        CallbackQueryHandler(
+            receipt_action,
+            pattern="^(approve|reject):"
+        )
+    )
+
+    # AI
+    app.add_handler(
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_message
+        )
+    )
+
+    print(
+        "Aqilliyordam AI bot ishga tushdi..."
+    )
+
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
