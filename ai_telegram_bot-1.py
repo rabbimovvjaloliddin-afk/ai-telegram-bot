@@ -3,12 +3,9 @@ import asyncio
 import logging
 import tempfile
 import shutil
+from pathlib import Path
 
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-)
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -19,18 +16,26 @@ from telegram.ext import (
 )
 
 # ============================================================
-# SOZLAMALAR
+# CONFIG
 # ============================================================
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 if not BOT_TOKEN:
-    raise RuntimeError("TELEGRAM_BOT_TOKEN topilmadi!")
+    raise RuntimeError("TELEGRAM_BOT_TOKEN environment variable topilmadi!")
+
+ADMIN_USERNAME = "@jaloliddino7"
+
+# Telegram botlar uchun katta fayllar bilan ishlashda limitlar
+MAX_FILE_SIZE = 20 * 1024 * 1024
 
 logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(message)s",
     level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
 )
+
+logger = logging.getLogger(__name__)
+
 
 # ============================================================
 # START
@@ -42,14 +47,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton(
                 "🎥 Video yuborish",
-                callback_data="video"
+                callback_data="convert"
             )
         ],
         [
             InlineKeyboardButton(
-                "ℹ️ Yordam",
+                "📖 Qanday ishlaydi?",
                 callback_data="help"
-            ),
+            )
+        ],
+        [
             InlineKeyboardButton(
                 "👨‍💻 Admin",
                 callback_data="admin"
@@ -57,92 +64,144 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
     ]
 
-    text = """
-✨ ASSALOMU ALAYKUM! ✨
-
-🎬 VIDEO CONVERTER BOT
-
-Men videolaringizni tez va qulay
-formatga aylantirib beraman.
-
-📤 Video yuboring:
-
-⭕ Dumaloq video
-🎵 MP3 audio
-
-⚡ Tez ishlaydi
-🎯 Oddiy foydalanish
-🤖 Avtomatik qayta ishlash
-
-👇 Boshlash uchun tugmani bosing:
-"""
+    text = (
+        "✨ <b>VIDEO CONVERTER</b> ✨\n\n"
+        "Assalomu alaykum! 👋\n\n"
+        "Men videoni avtomatik ravishda:\n\n"
+        "⭕ <b>Dumaloq video</b>\n"
+        "🎵 <b>MP3 audio</b>\n\n"
+        "formatiga aylantirib beraman.\n\n"
+        "📤 Videoni shu chatga yuboring.\n"
+        "⚡ Qolganini men qilaman!"
+    )
 
     await update.message.reply_text(
         text,
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML",
     )
 
 
 # ============================================================
-# BUTTONLAR
+# BUTTONS
 # ============================================================
 
 async def button_handler(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     query = update.callback_query
     await query.answer()
 
-    if query.data == "video":
+    if query.data == "convert":
 
         await query.message.reply_text(
-            "🎥 VIDEO YUBORING\n\n"
+            "🎥 <b>VIDEO YUBORING</b>\n\n"
             "Videoni shu chatga yuboring.\n\n"
             "Men sizga:\n"
             "⭕ Dumaloq video\n"
             "🎵 MP3 audio\n\n"
-            "qilib qaytaraman."
+            "qilib beraman.",
+            parse_mode="HTML",
         )
 
     elif query.data == "help":
 
         await query.message.reply_text(
-            "ℹ️ YORDAM\n\n"
-            "1️⃣ Videoni botga yuboring.\n"
-            "2️⃣ Bot videoni qayta ishlaydi.\n"
-            "3️⃣ Dumaloq video va MP3 audio tayyor bo‘ladi.\n\n"
-            "💡 Video yuborishning o‘zi kifoya."
+            "📖 <b>QANDAY ISHLAYDI?</b>\n\n"
+            "1️⃣ Videoni botga yuborasiz.\n\n"
+            "2️⃣ Bot videoni qayta ishlaydi.\n\n"
+            "3️⃣ ⭕ Dumaloq video tayyorlanadi.\n\n"
+            "4️⃣ 🎵 Videodagi ovoz MP3 qilib chiqariladi.\n\n"
+            "✅ Sizdan boshqa hech narsa talab qilinmaydi.",
+            parse_mode="HTML",
         )
 
     elif query.data == "admin":
 
         await query.message.reply_text(
-            "👨‍💻 ADMIN\n\n"
-            "Savol yoki taklif bo‘lsa:\n"
-            "@jaloliddino7"
+            f"👨‍💻 <b>ADMIN</b>\n\n"
+            f"📩 Murojaat uchun: {ADMIN_USERNAME}",
+            parse_mode="HTML",
         )
 
 
 # ============================================================
-# FFMPEG — DUMALOQ VIDEO
+# FFMPEG CHECK
+# ============================================================
+
+async def check_ffmpeg():
+
+    process = await asyncio.create_subprocess_exec(
+        "ffmpeg",
+        "-version",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+        raise RuntimeError("FFmpeg ishlamayapti!")
+
+    logger.info("FFmpeg muvaffaqiyatli topildi.")
+
+
+# ============================================================
+# RUN FFMPEG
+# ============================================================
+
+async def run_ffmpeg(command):
+
+    logger.info("FFmpeg ishga tushdi.")
+
+    process = await asyncio.create_subprocess_exec(
+        *command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    stdout, stderr = await process.communicate()
+
+    if process.returncode != 0:
+
+        error_text = stderr.decode(
+            "utf-8",
+            errors="ignore"
+        )
+
+        logger.error(
+            "FFmpeg ERROR:\n%s",
+            error_text
+        )
+
+        raise RuntimeError(
+            "FFmpeg videoni qayta ishlay olmadi."
+        )
+
+    logger.info("FFmpeg muvaffaqiyatli tugadi.")
+
+
+# ============================================================
+# CREATE ROUND VIDEO
 # ============================================================
 
 async def create_round_video(
     input_path: str,
-    output_path: str
+    output_path: str,
 ):
 
     command = [
         "ffmpeg",
         "-y",
+
         "-i",
         input_path,
 
-        # Markazdan kvadrat kesish
+        # Videoni markazdan kvadrat qilish
         "-vf",
-        "crop=min(iw\\,ih):min(iw\\,ih),scale=640:640,setsar=1",
+        "crop=min(iw\\,ih):min(iw\\,ih),scale=640:640:force_original_aspect_ratio=decrease,pad=640:640:(ow-iw)/2:(oh-ih)/2",
 
         "-c:v",
         "libx264",
@@ -153,6 +212,10 @@ async def create_round_video(
         "-crf",
         "23",
 
+        "-pix_fmt",
+        "yuv420p",
+
+        # Audio saqlanadi
         "-c:a",
         "aac",
 
@@ -165,35 +228,22 @@ async def create_round_video(
         output_path,
     ]
 
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-
-    stdout, stderr = await process.communicate()
-
-    if process.returncode != 0:
-        logging.error(
-            stderr.decode(errors="ignore")
-        )
-        raise RuntimeError(
-            "Dumaloq video yaratishda xatolik"
-        )
+    await run_ffmpeg(command)
 
 
 # ============================================================
-# FFMPEG — MP3 AUDIO
+# CREATE MP3
 # ============================================================
 
-async def create_audio(
+async def create_mp3(
     input_path: str,
-    output_path: str
+    output_path: str,
 ):
 
     command = [
         "ffmpeg",
         "-y",
+
         "-i",
         input_path,
 
@@ -208,30 +258,16 @@ async def create_audio(
         output_path,
     ]
 
-    process = await asyncio.create_subprocess_exec(
-        *command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-
-    stdout, stderr = await process.communicate()
-
-    if process.returncode != 0:
-        logging.error(
-            stderr.decode(errors="ignore")
-        )
-        raise RuntimeError(
-            "Audio yaratishda xatolik"
-        )
+    await run_ffmpeg(command)
 
 
 # ============================================================
-# VIDEO QABUL QILISH
+# VIDEO HANDLER
 # ============================================================
 
 async def video_handler(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     message = update.message
@@ -239,163 +275,228 @@ async def video_handler(
     if message.video:
 
         media = message.video
+        file_size = media.file_size or 0
+        duration = media.duration
 
     elif (
         message.document
         and message.document.mime_type
-        and message.document.mime_type.startswith(
-            "video/"
-        )
+        and message.document.mime_type.startswith("video/")
     ):
 
         media = message.document
+        file_size = media.file_size or 0
+        duration = None
 
     else:
         return
 
+    # Fayl hajmini tekshirish
+    if file_size > MAX_FILE_SIZE:
+
+        await message.reply_text(
+            "⚠️ <b>Video juda katta.</b>\n\n"
+            "20 MB dan kichikroq video yuboring.",
+            parse_mode="HTML",
+        )
+
+        return
+
     status = await message.reply_text(
-        "⏳ VIDEO QAYTA ISHLANMOQDA...\n\n"
+        "⏳ <b>VIDEO QAYTA ISHLANMOQDA...</b>\n\n"
         "🎬 Dumaloq video tayyorlanmoqda...\n"
-        "🎵 Audio ajratilmoqda..."
+        "🎵 Audio ajratilmoqda...\n\n"
+        "Iltimos, kuting.",
+        parse_mode="HTML",
     )
 
-    temp_dir = tempfile.mkdtemp()
-
-    input_path = os.path.join(
-        temp_dir,
-        "input.mp4"
+    temp_dir = Path(
+        tempfile.mkdtemp(prefix="video_bot_")
     )
 
-    round_path = os.path.join(
-        temp_dir,
-        "round.mp4"
-    )
-
-    audio_path = os.path.join(
-        temp_dir,
-        "audio.mp3"
-    )
+    input_path = temp_dir / "input.mp4"
+    round_path = temp_dir / "round.mp4"
+    audio_path = temp_dir / "audio.mp3"
 
     try:
 
-        # Telegramdan videoni olish
+        logger.info(
+            "Video qabul qilindi. File ID: %s",
+            media.file_id
+        )
+
+        # ====================================================
+        # DOWNLOAD
+        # ====================================================
+
         telegram_file = await context.bot.get_file(
             media.file_id
         )
 
         await telegram_file.download_to_drive(
-            input_path
+            custom_path=str(input_path)
         )
 
-        # Bir vaqtning o‘zida ikkala faylni tayyorlash
-        await asyncio.gather(
-            create_round_video(
-                input_path,
-                round_path
-            ),
-            create_audio(
-                input_path,
-                audio_path
-            ),
+        if not input_path.exists():
+
+            raise RuntimeError(
+                "Video serverga yuklanmadi."
+            )
+
+        logger.info(
+            "Video yuklandi: %s bytes",
+            input_path.stat().st_size
         )
+
+        # ====================================================
+        # FFMPEG
+        # ====================================================
 
         await status.edit_text(
-            "✅ TAYYOR!\n\n"
-            "📤 Fayllar yuborilmoqda..."
+            "⚙️ <b>QAYTA ISHLANMOQDA...</b>\n\n"
+            "⭕ Dumaloq video\n"
+            "🎵 MP3 audio\n\n"
+            "Deyarli tayyor...",
+            parse_mode="HTML",
+        )
+
+        # Ikkalasini parallel yaratamiz
+        await asyncio.gather(
+            create_round_video(
+                str(input_path),
+                str(round_path),
+            ),
+            create_mp3(
+                str(input_path),
+                str(audio_path),
+            ),
         )
 
         # ====================================================
-        # DUMALOQ VIDEO
+        # CHECK OUTPUT
         # ====================================================
 
-        with open(round_path, "rb") as round_video:
+        if not round_path.exists():
+            raise RuntimeError(
+                "Dumaloq video yaratilmagan."
+            )
+
+        if not audio_path.exists():
+            raise RuntimeError(
+                "MP3 audio yaratilmagan."
+            )
+
+        logger.info("Output fayllar tayyor.")
+
+        await status.edit_text(
+            "✅ <b>TAYYOR!</b>\n\n"
+            "📤 Fayllar yuborilmoqda...",
+            parse_mode="HTML",
+        )
+
+        # ====================================================
+        # ROUND VIDEO
+        # ====================================================
+
+        with open(
+            round_path,
+            "rb"
+        ) as video_file:
 
             await message.reply_video_note(
-                video=round_video,
+                video=video_file,
+                duration=duration,
                 length=640,
             )
 
         # ====================================================
-        # AUDIO
+        # MP3
         # ====================================================
 
-        with open(audio_path, "rb") as audio:
+        with open(
+            audio_path,
+            "rb"
+        ) as audio_file:
 
             await message.reply_audio(
-                audio=audio,
-                title="Video audio",
-                performer="Video Converter Bot",
-                caption="🎵 Videodan ajratilgan audio"
+                audio=audio_file,
+                title="Video Audio",
+                performer="Video Converter",
+                caption="🎵 Videodan ajratilgan audio",
             )
+
+        # ====================================================
+        # FINISH
+        # ====================================================
 
         await status.delete()
 
         await message.reply_text(
-            "🎉 HAMMASI TAYYOR!\n\n"
-            "⭕ Dumaloq video\n"
-            "🎵 MP3 audio\n\n"
-            "Yana video yuborishingiz mumkin."
+            "🎉 <b>TAYYOR!</b>\n\n"
+            "⭕ Dumaloq video — tayyor\n"
+            "🎵 MP3 audio — tayyor\n\n"
+            "📤 Yana video yuborishingiz mumkin.",
+            parse_mode="HTML",
         )
 
     except Exception as error:
 
-        logging.exception(
-            "Video processing error"
+        logger.exception(
+            "VIDEO PROCESSING ERROR"
         )
 
-        try:
+        error_message = str(error)
 
-            await status.edit_text(
-                "❌ XATOLIK YUZ BERDI.\n\n"
-                "Videoni boshqa formatda yuborib "
-                "yana urinib ko‘ring."
-            )
-
-        except Exception:
-            pass
+        await status.edit_text(
+            "❌ <b>XATOLIK</b>\n\n"
+            "Videoni qayta ishlashning iloji bo‘lmadi.\n\n"
+            f"🔎 <code>{error_message[:500]}</code>",
+            parse_mode="HTML",
+        )
 
     finally:
 
-        # Vaqtinchalik fayllarni o‘chirish
         try:
             shutil.rmtree(
                 temp_dir,
                 ignore_errors=True
             )
+
         except Exception:
             pass
 
 
 # ============================================================
-# MATN
+# TEXT HANDLER
 # ============================================================
 
 async def text_handler(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     await update.message.reply_text(
-        "🎥 Menga video yuboring.\n\n"
-        "Men undan:\n\n"
+        "🎥 <b>VIDEO YUBORING</b>\n\n"
+        "Videoni shu chatga yuboring.\n\n"
         "⭕ Dumaloq video\n"
         "🎵 MP3 audio\n\n"
-        "tayyorlab beraman."
+        "avtomatik tayyorlanadi.",
+        parse_mode="HTML",
     )
 
 
 # ============================================================
-# ERROR
+# ERROR HANDLER
 # ============================================================
 
 async def error_handler(
     update: object,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
-    logging.error(
-        "Bot error:",
-        exc_info=context.error
+    logger.exception(
+        "Telegram bot xatosi:",
+        exc_info=context.error,
     )
 
 
@@ -403,28 +504,51 @@ async def error_handler(
 # MAIN
 # ============================================================
 
+async def post_init(
+    application: Application
+):
+
+    await check_ffmpeg()
+
+    logger.info(
+        "===================================="
+    )
+
+    logger.info(
+        "VIDEO CONVERTER BOT ISHGA TUSHDI"
+    )
+
+    logger.info(
+        "===================================="
+    )
+
+
 def main():
 
-    app = (
+    application = (
         Application.builder()
         .token(BOT_TOKEN)
+        .post_init(post_init)
         .build()
     )
 
-    app.add_handler(
+    # Commands
+    application.add_handler(
         CommandHandler(
             "start",
             start
         )
     )
 
-    app.add_handler(
+    # Buttons
+    application.add_handler(
         CallbackQueryHandler(
             button_handler
         )
     )
 
-    app.add_handler(
+    # Videos
+    application.add_handler(
         MessageHandler(
             filters.VIDEO
             | filters.Document.VIDEO,
@@ -432,7 +556,8 @@ def main():
         )
     )
 
-    app.add_handler(
+    # Text
+    application.add_handler(
         MessageHandler(
             filters.TEXT
             & ~filters.COMMAND,
@@ -440,15 +565,16 @@ def main():
         )
     )
 
-    app.add_error_handler(
+    # Errors
+    application.add_error_handler(
         error_handler
     )
 
-    print(
-        "🤖 VIDEO CONVERTER BOT ISHLAYAPTI..."
+    logger.info(
+        "Bot polling boshlanmoqda..."
     )
 
-    app.run_polling(
+    application.run_polling(
         drop_pending_updates=True
     )
 
