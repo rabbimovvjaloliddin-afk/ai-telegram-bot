@@ -21,42 +21,38 @@ from telegram.ext import (
 )
 
 # ============================================================
-# CONFIG
+# SOZLAMALAR
 # ============================================================
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 if not BOT_TOKEN:
-    raise RuntimeError(
-        "TELEGRAM_BOT_TOKEN topilmadi!"
-    )
+    raise RuntimeError("TELEGRAM_BOT_TOKEN topilmadi!")
 
 ADMIN_USERNAME = "@jaloliddino7"
 
-# LIMITLAR
-MAX_FILE_SIZE = 20 * 1024 * 1024   # 20 MB
-MAX_DURATION = 25                  # 25 soniya
-
-# Video o'lchami
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
+MAX_DURATION = 25                 # 25 soniya
 VIDEO_SIZE = 640
 
+
 # ============================================================
-# LOGGING
+# LOG
 # ============================================================
 
 logging.basicConfig(
-    level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
+    level=logging.INFO,
 )
 
 logger = logging.getLogger(__name__)
 
 
 # ============================================================
-# HTML SAFE
+# HTML
 # ============================================================
 
-def safe_html(text: str) -> str:
+def safe_html(text):
     return (
         str(text)
         .replace("&", "&amp;")
@@ -69,28 +65,25 @@ def safe_html(text: str) -> str:
 # START
 # ============================================================
 
-async def start(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     keyboard = [
         [
             InlineKeyboardButton(
                 "🎥 Video yuborish",
-                callback_data="convert",
+                callback_data="convert"
             )
         ],
         [
             InlineKeyboardButton(
                 "📖 Qanday ishlaydi?",
-                callback_data="help",
+                callback_data="help"
             )
         ],
         [
             InlineKeyboardButton(
                 "👨‍💻 Admin",
-                callback_data="admin",
+                callback_data="admin"
             )
         ],
     ]
@@ -98,14 +91,14 @@ async def start(
     text = (
         "✨ <b>VIDEO CONVERTER</b> ✨\n\n"
         "Assalomu alaykum! 👋\n\n"
-        "Men videoni avtomatik ravishda:\n\n"
-        "⭕ <b>Square video</b>\n"
-        "🎵 <b>MP3 audio</b>\n\n"
+        "Videoni yuboring — men:\n\n"
+        "⭕ Kvadrat video\n"
+        "🔊 Original ovoz\n"
+        "🎵 MP3 audio\n\n"
         "qilib beraman.\n\n"
         "📌 <b>Limitlar:</b>\n"
         "⏱ Maksimal: <b>25 soniya</b>\n"
-        "📦 Maksimal: <b>20 MB</b>\n\n"
-        "🎥 Videoni shu chatga yuboring."
+        "📦 Maksimal: <b>20 MB</b>"
     )
 
     if update.message:
@@ -117,7 +110,7 @@ async def start(
 
 
 # ============================================================
-# BUTTON HANDLER
+# BUTTONLAR
 # ============================================================
 
 async def button_handler(
@@ -136,12 +129,12 @@ async def button_handler(
 
         await query.message.reply_text(
             "🎥 <b>VIDEO YUBORING</b>\n\n"
-            "📦 Maksimal hajm: <b>20 MB</b>\n"
-            "⏱ Maksimal davomiylik: <b>25 soniya</b>\n\n"
+            "📦 20 MB gacha\n"
+            "⏱ 25 soniyagacha\n\n"
             "Natijada:\n"
-            "⭕ Square video\n"
-            "🎵 MP3 audio\n\n"
-            "olinadi.",
+            "⭕ Kvadrat video\n"
+            "🔊 Original ovoz saqlanadi\n"
+            "🎵 MP3 audio ham beriladi.",
             parse_mode="HTML",
         )
 
@@ -150,11 +143,11 @@ async def button_handler(
         await query.message.reply_text(
             "📖 <b>QANDAY ISHLAYDI?</b>\n\n"
             "1️⃣ Video yuborasiz.\n\n"
-            "2️⃣ Bot hajmini tekshiradi.\n\n"
-            "3️⃣ Bot davomiyligini tekshiradi.\n\n"
+            "2️⃣ Hajmi tekshiriladi.\n\n"
+            "3️⃣ Davomiyligi tekshiriladi.\n\n"
             "4️⃣ Video kvadrat formatga o'tkaziladi.\n\n"
-            "5️⃣ Videodan MP3 olinadi.\n\n"
-            "6️⃣ Tayyor fayllar yuboriladi.\n\n"
+            "5️⃣ 🔊 Original ovoz videoda saqlanadi.\n\n"
+            "6️⃣ 🎵 Alohida MP3 ham chiqariladi.\n\n"
             "📌 Limit: 25 soniya / 20 MB.",
             parse_mode="HTML",
         )
@@ -174,35 +167,33 @@ async def button_handler(
 
 def get_ffmpeg():
 
-    ffmpeg = shutil.which("ffmpeg")
+    path = shutil.which("ffmpeg")
 
-    if not ffmpeg:
+    if not path:
         raise RuntimeError(
-            "FFmpeg topilmadi! Serverda FFmpeg o'rnatilmagan."
+            "FFmpeg topilmadi! Serverga FFmpeg o'rnatish kerak."
         )
 
-    return ffmpeg
+    return path
 
 
 def get_ffprobe():
 
-    ffprobe = shutil.which("ffprobe")
+    path = shutil.which("ffprobe")
 
-    if not ffprobe:
+    if not path:
         raise RuntimeError(
             "FFprobe topilmadi! FFmpeg paketi to'liq o'rnatilmagan."
         )
 
-    return ffprobe
+    return path
 
 
 # ============================================================
-# VIDEO DURATION
+# VIDEO DAVOMIYLIGI
 # ============================================================
 
-async def get_video_duration(
-    input_path: str
-):
+async def get_video_duration(file_path):
 
     ffprobe = get_ffprobe()
 
@@ -214,7 +205,7 @@ async def get_video_duration(
         "format=duration",
         "-of",
         "default=noprint_wrappers=1:nokey=1",
-        input_path,
+        file_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -242,18 +233,15 @@ async def get_video_duration(
 
     try:
         return float(result)
-
     except ValueError:
         return None
 
 
 # ============================================================
-# RUN FFMPEG
+# FFMPEG ISHLATISH
 # ============================================================
 
-async def run_ffmpeg(
-    command
-):
+async def run_ffmpeg(command):
 
     logger.info(
         "FFmpeg ishga tushmoqda..."
@@ -287,12 +275,12 @@ async def run_ffmpeg(
 
 
 # ============================================================
-# CREATE SQUARE VIDEO
+# VIDEO + ORIGINAL OVOZ
 # ============================================================
 
-async def create_square_video(
-    input_path: str,
-    output_path: str
+async def create_video(
+    input_path,
+    output_path
 ):
 
     ffmpeg = get_ffmpeg()
@@ -304,6 +292,7 @@ async def create_square_video(
         "-i",
         input_path,
 
+        # Videoni kvadrat qilish
         "-vf",
         (
             "crop=min(iw\\,ih):min(iw\\,ih),"
@@ -311,6 +300,7 @@ async def create_square_video(
             "format=yuv420p"
         ),
 
+        # VIDEO
         "-c:v",
         "libx264",
 
@@ -320,8 +310,21 @@ async def create_square_video(
         "-crf",
         "23",
 
-        "-an",
+        # ORIGINAL AUDIO
+        "-c:a",
+        "aac",
 
+        "-b:a",
+        "128k",
+
+        # Video va audio mapping
+        "-map",
+        "0:v:0",
+
+        "-map",
+        "0:a:0?",
+
+        # MP4
         "-movflags",
         "+faststart",
 
@@ -332,12 +335,12 @@ async def create_square_video(
 
 
 # ============================================================
-# CREATE MP3
+# MP3
 # ============================================================
 
 async def create_mp3(
-    input_path: str,
-    output_path: str
+    input_path,
+    output_path
 ):
 
     ffmpeg = get_ffmpeg()
@@ -381,9 +384,9 @@ async def video_handler(
     file_size = 0
     duration = None
 
-    # ========================================================
-    # NORMAL VIDEO
-    # ========================================================
+    # --------------------------------------------------------
+    # ODDIY VIDEO
+    # --------------------------------------------------------
 
     if message.video:
 
@@ -393,9 +396,9 @@ async def video_handler(
 
         duration = media.duration or None
 
-    # ========================================================
-    # VIDEO AS DOCUMENT
-    # ========================================================
+    # --------------------------------------------------------
+    # DOCUMENT VIDEO
+    # --------------------------------------------------------
 
     elif (
         message.document
@@ -418,15 +421,15 @@ async def video_handler(
 
         await message.reply_text(
             "⚠️ <b>VIDEO JUDA KATTA!</b>\n\n"
-            "📦 Maksimal hajm: <b>20 MB</b>\n\n"
-            "Iltimos, 20 MB dan kichik video yuboring.",
+            "📦 Maksimal: <b>20 MB</b>\n\n"
+            "20 MB dan kichik video yuboring.",
             parse_mode="HTML",
         )
 
         return
 
     # ========================================================
-    # 25 SECOND LIMIT
+    # 25 SONIYA LIMIT
     # ========================================================
 
     if duration is not None:
@@ -436,7 +439,7 @@ async def video_handler(
             await message.reply_text(
                 "⚠️ <b>VIDEO JUDA UZUN!</b>\n\n"
                 "⏱ Maksimal: <b>25 soniya</b>\n\n"
-                "Iltimos, 25 soniyadan qisqaroq video yuboring.",
+                "25 soniyadan qisqaroq video yuboring.",
                 parse_mode="HTML",
             )
 
@@ -452,10 +455,6 @@ async def video_handler(
         parse_mode="HTML",
     )
 
-    # ========================================================
-    # TEMP DIRECTORY
-    # ========================================================
-
     temp_dir = Path(
         tempfile.mkdtemp(
             prefix="video_converter_"
@@ -463,18 +462,14 @@ async def video_handler(
     )
 
     input_path = temp_dir / "input.mp4"
-    square_path = temp_dir / "square.mp4"
-    mp3_path = temp_dir / "audio.mp3"
+    output_video = temp_dir / "video.mp4"
+    output_mp3 = temp_dir / "audio.mp3"
 
     try:
 
         # ====================================================
         # DOWNLOAD
         # ====================================================
-
-        logger.info(
-            "Video yuklanmoqda..."
-        )
 
         telegram_file = await context.bot.get_file(
             media.file_id
@@ -490,22 +485,17 @@ async def video_handler(
                 "Video Telegramdan yuklanmadi."
             )
 
+        # ====================================================
+        # HAJM TEKSHIRISH
+        # ====================================================
+
         actual_size = input_path.stat().st_size
-
-        logger.info(
-            "Video hajmi: %d bytes",
-            actual_size
-        )
-
-        # ====================================================
-        # REAL SIZE CHECK
-        # ====================================================
 
         if actual_size > MAX_FILE_SIZE:
 
             await status.edit_text(
                 "⚠️ <b>VIDEO JUDA KATTA!</b>\n\n"
-                "📦 Maksimal hajm: <b>20 MB</b>",
+                "📦 Maksimal: <b>20 MB</b>",
                 parse_mode="HTML",
             )
 
@@ -513,7 +503,7 @@ async def video_handler(
 
         # ====================================================
         # DOCUMENT DURATION
-        # ========================================================
+        # ====================================================
 
         if duration is None:
 
@@ -533,11 +523,6 @@ async def video_handler(
                     "Video davomiyligini aniqlab bo'lmadi."
                 )
 
-            logger.info(
-                "Duration: %.2f seconds",
-                duration
-            )
-
             if duration > MAX_DURATION:
 
                 await status.edit_text(
@@ -549,81 +534,87 @@ async def video_handler(
                 return
 
         # ====================================================
-        # PROCESS
+        # PROCESSING
         # ====================================================
 
         await status.edit_text(
             "⚙️ <b>QAYTA ISHLANMOQDA...</b>\n\n"
             "⭕ Video tayyorlanmoqda...\n"
+            "🔊 Original ovoz saqlanmoqda...\n"
             "🎵 MP3 tayyorlanmoqda...\n\n"
             "⏳ Kuting...",
             parse_mode="HTML",
         )
 
+        # Bir vaqtning o'zida video + MP3
         await asyncio.gather(
-            create_square_video(
+
+            create_video(
                 str(input_path),
-                str(square_path)
+                str(output_video)
             ),
+
             create_mp3(
                 str(input_path),
-                str(mp3_path)
+                str(output_mp3)
             ),
         )
 
         # ====================================================
-        # CHECK OUTPUT
+        # OUTPUT TEKSHIRISH
         # ====================================================
 
-        if not square_path.exists():
+        if not output_video.exists():
+
             raise RuntimeError(
                 "Video fayli yaratilmagan."
             )
 
-        if square_path.stat().st_size == 0:
+        if output_video.stat().st_size <= 0:
+
             raise RuntimeError(
                 "Video fayli bo'sh."
             )
 
-        if not mp3_path.exists():
+        if not output_mp3.exists():
+
             raise RuntimeError(
                 "MP3 fayli yaratilmagan."
             )
 
-        if mp3_path.stat().st_size == 0:
+        if output_mp3.stat().st_size <= 0:
+
             raise RuntimeError(
                 "MP3 fayli bo'sh."
             )
 
         # ====================================================
-        # SEND VIDEO
+        # VIDEO YUBORISH
         # ====================================================
 
         await status.edit_text(
             "✅ <b>VIDEO TAYYOR!</b>\n\n"
-            "📤 Video yuborilmoqda...",
+            "📤 Original ovozi bilan yuborilmoqda...",
             parse_mode="HTML",
         )
 
-        # MUHIM:
-        # reply_video ishlatilmoqda.
-        # reply_video_note ishlatilmaydi.
-        # Shuning uchun Voice_messages_forbidden
-        # xatosi chiqmaydi.
-
         with open(
-            square_path,
+            output_video,
             "rb"
         ) as video_file:
 
             await message.reply_video(
                 video=video_file,
-                caption="⭕ Tayyorlangan video",
+                caption=(
+                    "⭕ <b>Tayyor video</b>\n"
+                    "🔊 Original ovoz saqlangan."
+                ),
+                parse_mode="HTML",
                 supports_streaming=True,
             )
 
         # ====================================================
-        # SEND MP3
+        # MP3 YUBORISH
         # ====================================================
 
         await status.edit_text(
@@ -632,11 +623,8 @@ async def video_handler(
             parse_mode="HTML",
         )
 
-        # Bu VOICE EMAS.
-        # Oddiy MP3 audio fayl.
-
         with open(
-            mp3_path,
+            output_mp3,
             "rb"
         ) as audio_file:
 
@@ -644,7 +632,7 @@ async def video_handler(
                 audio=audio_file,
                 title="Video Audio",
                 performer="Video Converter",
-                caption="🎵 Videodan ajratilgan MP3",
+                caption="🎵 Videoning original ovozidan MP3",
             )
 
         # ====================================================
@@ -659,6 +647,7 @@ async def video_handler(
         await message.reply_text(
             "🎉 <b>TAYYOR!</b>\n\n"
             "⭕ Video — tayyor\n"
+            "🔊 Original ovoz — saqlangan\n"
             "🎵 MP3 — tayyor\n\n"
             "📤 Yana video yuborishingiz mumkin.",
             parse_mode="HTML",
@@ -696,7 +685,7 @@ async def video_handler(
     except Exception as error:
 
         logger.exception(
-            "PROCESSING ERROR"
+            "VIDEO PROCESSING ERROR"
         )
 
         error_text = safe_html(
@@ -707,7 +696,8 @@ async def video_handler(
 
             await status.edit_text(
                 "❌ <b>XATOLIK SABABI:</b>\n\n"
-                f"<code>{error_text[:2000]}</code>",
+                f"<code>{error_text[:2000]}</code>\n\n"
+                "📌 Limit: 25 soniya / 20 MB",
                 parse_mode="HTML",
             )
 
@@ -746,12 +736,13 @@ async def text_handler(
 
     await update.message.reply_text(
         "🎥 <b>VIDEO YUBORING</b>\n\n"
-        "📦 Maksimal: <b>20 MB</b>\n"
-        "⏱ Maksimal: <b>25 soniya</b>\n\n"
-        "Men sizga:\n"
+        "📦 20 MB gacha\n"
+        "⏱ 25 soniyagacha\n\n"
+        "Natijada:\n"
         "⭕ Kvadrat video\n"
-        "🎵 MP3 audio\n\n"
-        "tayyorlab beraman.",
+        "🔊 Original ovoz\n"
+        "🎵 MP3\n\n"
+        "olinadi.",
         parse_mode="HTML",
     )
 
@@ -773,7 +764,7 @@ async def error_handler(
 
 
 # ============================================================
-# POST INIT
+# STARTUP
 # ============================================================
 
 async def post_init(
@@ -786,13 +777,13 @@ async def post_init(
     if not ffmpeg:
 
         raise RuntimeError(
-            "FFmpeg topilmadi! Serverda FFmpeg o'rnatilishi kerak."
+            "FFmpeg topilmadi!"
         )
 
     if not ffprobe:
 
         raise RuntimeError(
-            "FFprobe topilmadi! Serverda FFmpeg o'rnatilishi kerak."
+            "FFprobe topilmadi!"
         )
 
     logger.info(
