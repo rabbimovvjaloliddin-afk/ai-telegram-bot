@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["python312", "ffmpeg"]
+
+[phases.install]
+cmds = ["pip install -r requirements.txt"]
+
+[start]
+cmd = "python ai_telegram_bot-1.py"
