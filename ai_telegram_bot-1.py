@@ -286,7 +286,7 @@ async def video_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # ROUND VIDEO
         with open(round_path, "rb") as video_file:
             await message.reply_video_note(
-                video_note=vidio_file
+                video_note=vidio_file,
                 duration=duration,
                 length=640,
             )
